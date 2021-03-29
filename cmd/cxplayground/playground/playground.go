@@ -1,23 +1,37 @@
 package playground
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/skycoin/cx/cx/ast"
+	"github.com/skycoin/cx/cx/execute"
+	"io"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"path/filepath"
+	"runtime"
+	"time"
+
+	"github.com/skycoin/cx/cxgo/actions"
+	"github.com/skycoin/cx/cxgo/cxgo"
+	"github.com/skycoin/cx/cxgo/cxgo0"
+	"github.com/skycoin/cx/cxgo/cxparser"
 )
 
-var exampleCollection map[string]string
-var exampleNames []string
-var examplesDir string
+var (
+	exampleCollection map[string]string
+	exampleNames      []string
+	examplesDir       string
+)
 
 type ExampleContent struct {
 	ExampleName string
 }
 
-func InitPlayground(workingDir string) error {
-	examplesDir = filepath.Join(workingDir, "examples")
+var InitPlayground = func(workingDir string) error {
+	examplesDir = filepath.Join(workingDir, "../../examples")
 	exampleCollection = make(map[string]string)
 
 	exampleInfoList, err := ioutil.ReadDir(examplesDir)
@@ -25,13 +39,11 @@ func InitPlayground(workingDir string) error {
 		fmt.Printf("Fail to get file list under examples dir: %s\n", err.Error())
 		return err
 	}
-
 	for _, exp := range exampleInfoList {
 		if exp.IsDir() {
 			continue
 		}
 		path := filepath.Join(examplesDir, exp.Name())
-
 		bytes, err := ioutil.ReadFile(path)
 		if err != nil {
 			fmt.Printf("Fail to read example file %s\n", path)
@@ -47,107 +59,22 @@ func InitPlayground(workingDir string) error {
 	return nil
 }
 
-func GetPlayground(w http.ResponseWriter, r *http.Request) {
-	playgroundHtml := `<html>
-
-<head>
-    <title>test</title>
-    <script src="https://libs.baidu.com/jquery/1.7.2/jquery.min.js"></script>
-</head>
-<script>
-    // var url = "http://localhost:5336/"
-    $().ready(function () {
-        $.getJSON("playground/examples", function (inputData) {
-            $.each(inputData, function (i) {
-                $("#list").append("<option value='" + i + "'>" + inputData[i] + "</option>");
-            });
-        });
-        $("#list").bind("change", function () {
-            var data = { "examplename": $("#list").find("option:selected").text() };
-            $.ajax({
-                type: "POST",
-                url: "/playground/examples/code",
-                contentType: "application/json;charset=utf-8",
-                data: JSON.stringify(data),
-                cache: false,
-                success: function (message) {
-                    $("#inputData").html(message);
-
-                },
-                error: function (message) {
-                    $("#inputData").html(message);
-                }
-            });
-        });
-        $("#run").click(function () {
-            var data = { "code": $("#inputData").text() };
-            $.ajax({
-                type: "POST",
-                url: "/eval",
-                contentType: "application/json;charset=utf-8",
-                data: JSON.stringify(data),
-                cache: false,
-                success: function (message) {
-                    $("#result").text(function (i, origText) {
-                        return message;
-                    });
-                },
-                error: function (message) {
-                    $("#result").text(function (i, origText) {
-                        return message;
-                    });
-                }
-            });
-        });
-    });
-
-</script>
-
-<body>
-    <div style="text-align:center;">
-        <div id="banner">
-            <div id="head" itemprop="name">Playground</div>
-            <select id="list">
-                <option value="hello">Hello, World</option>
-            </select>
-            <input type="button" value="Run" id="run">
-        </div>
-        <div>
-            <textarea id="inputData" rows="20" cols="80">
-package main;
-
-func main(){
-    str.print("Hello, world!")
-}
-</textarea>
-            <p>result:</p>
-            <p id="result"></p>
-        </div>
-    </div>
-</body>
-
-</html>`
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-
-	fmt.Fprintf(w, playgroundHtml)
-
-}
-
 func GetExampleFileList(w http.ResponseWriter, r *http.Request) {
+
 	exampleNamesBytes, err := json.Marshal(exampleNames)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-
 	fmt.Fprintf(w, string(exampleNamesBytes))
 }
 
 func GetExampleFileContent(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
-	var b []byte
-	var err error
+	var (
+		b   []byte
+		err error
+	)
 	if b, err = ioutil.ReadAll(r.Body); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -168,7 +95,7 @@ func GetExampleFileContent(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, content)
 }
 
-func getExampleFileContent(exampleName string) (string, error) {
+var getExampleFileContent = func(exampleName string) (string, error) {
 	exampleContent, ok := exampleCollection[exampleName]
 	if !ok {
 		err := fmt.Errorf("example name %s not found", exampleName)
@@ -176,4 +103,107 @@ func getExampleFileContent(exampleName string) (string, error) {
 		return "", err
 	}
 	return exampleContent, nil
+}
+
+type SourceCode struct {
+	Code string `json:"code,omitempty"`
+}
+
+func RunProgram(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+	var b []byte
+	var err error
+	if b, err = ioutil.ReadAll(r.Body); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	var source SourceCode
+	if err := json.Unmarshal(b, &source); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	if err := r.ParseForm(); err == nil {
+		fmt.Fprintf(w, "%s", eval(source.Code+"\n"))
+	}
+}
+
+func unsafeeval(code string) (out string) {
+	var lexer *cxgo.Lexer
+	defer func(lexer *cxgo.Lexer) {
+		if r := recover(); r != nil {
+			out = fmt.Sprintf("%v", r)
+			// lexer.Stop()
+			return
+		}
+	}(lexer)
+
+	// storing strings sent to standard output
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		return fmt.Sprintf("%v", err)
+	}
+	os.Stdout = w
+
+	actions.LineNo = 0
+
+	actions.AST = ast.MakeProgram()
+	cxgo0.PRGRM0 = actions.AST
+
+	cxgo0.Parse(code)
+
+	actions.AST = cxgo0.PRGRM0
+
+	lexer = cxgo.NewLexer(bytes.NewBufferString(code))
+	cxgo.Parse(lexer)
+	//yyParse(lexer)
+
+	err = cxparser.AddInitFunction(actions.AST)
+	if err != nil {
+		return fmt.Sprintf("%s", err)
+	}
+	//if err := actions.AST.RunCompiled(0, nil); err != nil {
+	err = execute.RunCompiled(actions.AST, 0, nil)
+	if err != nil {
+		actions.AST = ast.MakeProgram()
+		return fmt.Sprintf("%s", err)
+	}
+
+	outC := make(chan string)
+	go func() {
+		var buf bytes.Buffer
+		io.Copy(&buf, r)
+		outC <- buf.String()
+	}()
+
+	w.Close()
+	os.Stdout = old // restoring the real stdout
+	out = <-outC
+
+	actions.AST = ast.MakeProgram()
+	return out
+}
+
+func eval(code string) string {
+	runtime.GOMAXPROCS(2)
+	ch := make(chan string, 1)
+
+	var result string
+
+	go func() {
+		result = unsafeeval(code)
+		ch <- result
+	}()
+
+	timer := time.NewTimer(20 * time.Second)
+	defer timer.Stop()
+
+	select {
+	case <-ch:
+		return result
+	case <-timer.C:
+		actions.AST = ast.MakeProgram()
+		return "Timed out."
+	}
 }

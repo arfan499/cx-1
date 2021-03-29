@@ -10,7 +10,7 @@ import (
 	"github.com/skycoin/gltext"
 	"golang.org/x/mobile/gl"
 
-	. "github.com/skycoin/cx/cx"
+	"github.com/skycoin/cx/cx"
 )
 
 func Ptr(data interface{}) (unsafe.Pointer, uintptr) {
@@ -47,14 +47,12 @@ func Ptr(data interface{}) (unsafe.Pointer, uintptr) {
 
 func ByteSlice(i interface{}) []byte {
 	ptr, size := Ptr(i)
-	//fmt.Printf("ByteSlice %d\n", size)
 	h := reflect.SliceHeader{uintptr(ptr), int(size), int(size)}
 	return *(*[]byte)(unsafe.Pointer(&h))
 }
 
 func Float32Slice(i interface{}) []float32 {
 	ptr, size := Ptr(i)
-	//fmt.Printf("ByteSlice %d\n", size)
 	floatSize := int(size / unsafe.Sizeof(float32(0)))
 	h := reflect.SliceHeader{uintptr(ptr), int(floatSize), int(floatSize)}
 	return *(*[]float32)(unsafe.Pointer(&h))
@@ -62,7 +60,6 @@ func Float32Slice(i interface{}) []float32 {
 
 func Int32Slice(i interface{}) []int32 {
 	ptr, size := Ptr(i)
-	//fmt.Printf("ByteSlice %d\n", size)
 	intSize := int(size / unsafe.Sizeof(int32(0)))
 	h := reflect.SliceHeader{uintptr(ptr), int(intSize), int(intSize)}
 	return *(*[]int32)(unsafe.Pointer(&h))
@@ -70,7 +67,6 @@ func Int32Slice(i interface{}) []int32 {
 
 func EnumSlice(i interface{}) []gl.Enum {
 	ptr, size := Ptr(i)
-	//fmt.Printf("EnumSlice %d\n", size)
 	enumSize := int(size / unsafe.Sizeof(gl.Enum(0)))
 	h := reflect.SliceHeader{uintptr(ptr), enumSize, enumSize}
 	return *(*[]gl.Enum)(unsafe.Pointer(&h))
@@ -104,19 +100,19 @@ func SetGLContext(ctx gl.Context) {
 }
 
 // gogl
-func opGlInit(_ *CXProgram) {
+func opGlInit(inputs []CXValue, outputs []CXValue) {
 	//panic(CX_RUNTIME_NOT_IMPLEMENTED)
 }
 
-func opGlDestroy(_ *CXProgram) {
+func opGlDestroy(inputs []CXValue, outputs []CXValue) {
 	panic(CX_RUNTIME_NOT_IMPLEMENTED)
 }
 
-func opGlStrs(prgrm *CXProgram) {
+func opGlStrs(inputs []CXValue, outputs []CXValue) {
 	panic(CX_RUNTIME_NOT_IMPLEMENTED)
 }
 
-func opGlFree(prgrm *CXProgram) {
+func opGlFree(inputs []CXValue, outputs []CXValue) {
 	panic(CX_RUNTIME_NOT_IMPLEMENTED)
 }
 
@@ -142,8 +138,6 @@ func cxglTexParameteri(target uint32, pname uint32, param int32) {
 }
 
 func cxglTexImage2D(target uint32, level int32, internalFormat int32, width int32, height int32, border int32, format uint32, gltype uint32, pixels interface{}) {
-	//fmt.Printf("cxglTexImage2D : target %d, level %d, internalFormat %d, width %d, height %d, border %d, format %d, type %d, pixels %v\n",
-	//		target, level, internalFormat, width, height, border, format, gltype, pixels)
 	glctx.TexImage2D(gl.Enum(target), int(level), int(internalFormat), int(width), int(height), int(border), gl.Enum(format), gl.Enum(gltype), ByteSlice((pixels)))
 }
 
@@ -276,7 +270,6 @@ func cxglGenBuffers(n int32, buffers *uint32) {
 
 // cxgl_2_0
 func cxglBufferData(target uint32, size int, data interface{}, usage uint32) {
-	//fmt.Printf("cxglBufferData : target %d, size %d, data %v\n", target, size, data)
 	slice := ByteSlice(data)
 	if slice == nil || len(slice) == 0 {
 		glctx.BufferInit(gl.Enum(target), size, gl.Enum(usage))
@@ -286,7 +279,6 @@ func cxglBufferData(target uint32, size int, data interface{}, usage uint32) {
 }
 
 func cxglBufferSubData(target uint32, offset int, size int, data interface{}) {
-	//fmt.Printf("cxglBufferSubData : target %d, offset %d, size %d, data %v\n", target, offset, size, data)
 	glctx.BufferSubData(gl.Enum(target), offset, ByteSlice(data))
 }
 
@@ -463,7 +455,6 @@ func cxglUniformMatrix3fv(location int32, count int32, transpose bool, value int
 
 func cxglUniformMatrix4fv(location int32, count int32, transpose bool, value interface{}) {
 	if transpose {
-		fmt.Printf("CXGL_UNIFORM_MATRIX_4FV transpose not supported\n")
 		panic(CX_RUNTIME_NOT_IMPLEMENTED)
 	}
 	glctx.UniformMatrix4fv(gl.Uniform{location}, Float32Slice(value))
@@ -582,86 +573,86 @@ func cxglGenVertexArrays(n int32, arrays *uint32) {
 }
 
 // gl_0_0
-func opGlMatrixMode(prgrm *CXProgram) {
+func opGlMatrixMode(inputs []CXValue, outputs []CXValue) {
 	panic(CX_RUNTIME_NOT_IMPLEMENTED)
 }
 
-func opGlRotatef(prgrm *CXProgram) {
+func opGlRotatef(inputs []CXValue, outputs []CXValue) {
 	panic(CX_RUNTIME_NOT_IMPLEMENTED)
 }
 
-func opGlTranslatef(prgrm *CXProgram) {
+func opGlTranslatef(inputs []CXValue, outputs []CXValue) {
 	panic(CX_RUNTIME_NOT_IMPLEMENTED)
 }
 
-func opGlLoadIdentity(_ *CXProgram) {
+func opGlLoadIdentity(inputs []CXValue, outputs []CXValue) {
 	panic(CX_RUNTIME_NOT_IMPLEMENTED)
 }
 
-func opGlPushMatrix(_ *CXProgram) {
+func opGlPushMatrix(inputs []CXValue, outputs []CXValue) {
 	panic(CX_RUNTIME_NOT_IMPLEMENTED)
 }
 
-func opGlPopMatrix(_ *CXProgram) {
+func opGlPopMatrix(inputs []CXValue, outputs []CXValue) {
 	panic(CX_RUNTIME_NOT_IMPLEMENTED)
 }
 
-func opGlEnableClientState(prgrm *CXProgram) {
+func opGlEnableClientState(inputs []CXValue, outputs []CXValue) {
 	panic(CX_RUNTIME_NOT_IMPLEMENTED)
 }
 
-func opGlColor3f(prgrm *CXProgram) {
+func opGlColor3f(inputs []CXValue, outputs []CXValue) {
 	panic(CX_RUNTIME_NOT_IMPLEMENTED)
 }
 
-func opGlColor4f(prgrm *CXProgram) {
+func opGlColor4f(inputs []CXValue, outputs []CXValue) {
 	panic(CX_RUNTIME_NOT_IMPLEMENTED)
 }
 
-func opGlBegin(prgrm *CXProgram) {
+func opGlBegin(inputs []CXValue, outputs []CXValue) {
 	panic(CX_RUNTIME_NOT_IMPLEMENTED)
 }
 
-func opGlEnd(_ *CXProgram) {
+func opGlEnd(inputs []CXValue, outputs []CXValue) {
 	panic(CX_RUNTIME_NOT_IMPLEMENTED)
 }
 
-func opGlNormal3f(prgrm *CXProgram) {
+func opGlNormal3f(inputs []CXValue, outputs []CXValue) {
 	panic(CX_RUNTIME_NOT_IMPLEMENTED)
 }
 
-func opGlVertex2f(prgrm *CXProgram) {
+func opGlVertex2f(inputs []CXValue, outputs []CXValue) {
 	panic(CX_RUNTIME_NOT_IMPLEMENTED)
 }
 
-func opGlVertex3f(prgrm *CXProgram) {
+func opGlVertex3f(inputs []CXValue, outputs []CXValue) {
 	panic(CX_RUNTIME_NOT_IMPLEMENTED)
 }
 
-func opGlLightfv(_ *CXProgram) {
+func opGlLightfv(inputs []CXValue, outputs []CXValue) {
 	panic(CX_RUNTIME_NOT_IMPLEMENTED)
 }
 
-func opGlFrustum(prgrm *CXProgram) {
+func opGlFrustum(inputs []CXValue, outputs []CXValue) {
 	panic(CX_RUNTIME_NOT_IMPLEMENTED)
 }
 
-func opGlTexEnvi(prgrm *CXProgram) {
+func opGlTexEnvi(inputs []CXValue, outputs []CXValue) {
 	panic(CX_RUNTIME_NOT_IMPLEMENTED)
 }
 
-func opGlOrtho(prgrm *CXProgram) {
+func opGlOrtho(inputs []CXValue, outputs []CXValue) {
 	panic(CX_RUNTIME_NOT_IMPLEMENTED)
 }
 
-func opGlScalef(prgrm *CXProgram) {
+func opGlScalef(inputs []CXValue, outputs []CXValue) {
 	panic(CX_RUNTIME_NOT_IMPLEMENTED)
 }
 
-func opGlTexCoord2d(prgrm *CXProgram) {
+func opGlTexCoord2d(inputs []CXValue, outputs []CXValue) {
 	panic(CX_RUNTIME_NOT_IMPLEMENTED)
 }
 
-func opGlTexCoord2f(prgrm *CXProgram) {
+func opGlTexCoord2f(inputs []CXValue, outputs []CXValue) {
 	panic(CX_RUNTIME_NOT_IMPLEMENTED)
 }

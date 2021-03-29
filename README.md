@@ -47,9 +47,9 @@ You can find binary releases for most major systems on the [release page](https:
 If you are using a `apt` compatible system, install the dependencies with"
 
 ```
-sudo apt-get update -qq
+sudo apt-get update
 
-sudo apt-get install -y glade xvfb libxinerama-dev libxcursor-dev libxrandr-dev libgl1-mesa-dev libxi-dev libperl-dev libcairo2-dev libpango1.0-dev libglib2.0-dev libopenal-dev libxxf86vm-dev make --no-install-recommends
+sudo apt-get install -y glade xvfb libxinerama-dev libxcursor-dev libxrandr-dev libgl1-mesa-dev libxi-dev libperl-dev libcairo2-dev libpango1.0-dev libglib2.0-dev libopenal-dev libxxf86vm-dev make
 ```
 
 If you have not setup Golang on your machine, follow this [guide](https://www.tecmint.com/install-go-in-ubuntu/) to install and setup Go. 
@@ -64,7 +64,6 @@ Get required Go dependencies with:
 
 ```
 go get -u golang.org/x/mobile/cmd/gomobile
-go get -u modernc.org/goyacc
 go get golang.org/x/mobile/gl 
 ```
 
@@ -75,18 +74,13 @@ Build CX's binary and install by running:
 ```
 make build
 make install
+make test
 ```
 
 Add the CX binary path to your operating system's `$PATH`. For example, in Linux:
 
 ```
 export PATH=$PATH:$HOME/cx/bin
-```
-
-Afterwards, add Golang binaries to your `$PATH`. For example, in Linux:
-
-```
-export PATH=$PATH:$HOME/go/bin
 ```
 
 You should test your installation by running:
@@ -187,3 +181,10 @@ If you are interested in learning more about CX, please refer to the [resources 
 If you want to get started with some basic example programs and tutorials check out the [tutorials section](docs/cx-tutorials.md). 
 
 The docs also provide a high level [overview](docs/overview.md) over the language. 
+
+
+Guide for  cx compiler development
+* [Compiler Development](docs/CompilerDevelopment.md)
+
+how  to write cx wrapping libraty in Go Programming Language
+* [Wrapping golang libraries](docs/Wrappinggolanglibraries.md)

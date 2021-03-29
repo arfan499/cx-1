@@ -2,51 +2,36 @@ package cxcore
 
 import (
 	"fmt"
+	"github.com/skycoin/cx/cx/ast"
 )
 
-func opBoolPrint(prgrm *CXProgram) {
-	expr := prgrm.GetExpr()
-	fp := prgrm.GetFramePointer()
-
-	fmt.Println(ReadBool(fp, expr.Inputs[0]))
+func opBoolPrint(inputs []ast.CXValue, outputs []ast.CXValue) {
+	fmt.Println(inputs[0].Get_bool())
 }
 
-func opBoolEqual(prgrm *CXProgram) {
-	expr := prgrm.GetExpr()
-	fp := prgrm.GetFramePointer()
-
-	outV0 := ReadBool(fp, expr.Inputs[0]) == ReadBool(fp, expr.Inputs[1])
-	WriteBool(GetFinalOffset(fp, expr.Outputs[0]), outV0)
+func opBoolEqual(inputs []ast.CXValue, outputs []ast.CXValue) {
+	outV0 := inputs[0].Get_bool() == inputs[1].Get_bool()
+	outputs[0].Set_bool(outV0)
 }
 
-func opBoolUnequal(prgrm *CXProgram) {
-	expr := prgrm.GetExpr()
-	fp := prgrm.GetFramePointer()
-
-	outV0 := ReadBool(fp, expr.Inputs[0]) != ReadBool(fp, expr.Inputs[1])
-	WriteBool(GetFinalOffset(fp, expr.Outputs[0]), outV0)
+func opBoolUnequal(inputs []ast.CXValue, outputs []ast.CXValue) {
+	outV0 := inputs[0].Get_bool() != inputs[1].Get_bool()
+	outputs[0].Set_bool(outV0)
 }
 
-func opBoolNot(prgrm *CXProgram) {
-	expr := prgrm.GetExpr()
-	fp := prgrm.GetFramePointer()
-
-	outV0 := !ReadBool(fp, expr.Inputs[0])
-	WriteBool(GetFinalOffset(fp, expr.Outputs[0]), outV0)
+func opBoolNot(inputs []ast.CXValue, outputs []ast.CXValue) {
+	outV0 := !inputs[0].Get_bool()
+	outputs[0].Set_bool(outV0)
 }
 
-func opBoolAnd(prgrm *CXProgram) {
-	expr := prgrm.GetExpr()
-	fp := prgrm.GetFramePointer()
-
-	outV0 := ReadBool(fp, expr.Inputs[0]) && ReadBool(fp, expr.Inputs[1])
-	WriteBool(GetFinalOffset(fp, expr.Outputs[0]), outV0)
+func opBoolAnd(inputs []ast.CXValue, outputs []ast.CXValue) {
+	inpV0 := inputs[0].Get_bool()
+	inpV1 := inputs[1].Get_bool()
+	outputs[0].Set_bool(inpV0 && inpV1)
 }
 
-func opBoolOr(prgrm *CXProgram) {
-	expr := prgrm.GetExpr()
-	fp := prgrm.GetFramePointer()
-
-	outV0 := ReadBool(fp, expr.Inputs[0]) || ReadBool(fp, expr.Inputs[1])
-	WriteBool(GetFinalOffset(fp, expr.Outputs[0]), outV0)
+func opBoolOr(inputs []ast.CXValue, outputs []ast.CXValue) {
+	inpV0 := inputs[0].Get_bool()
+	inpV1 := inputs[1].Get_bool()
+	outputs[0].Set_bool(inpV0 || inpV1)
 }

@@ -2,32 +2,34 @@ package actions
 
 import (
 	"fmt"
+	"github.com/skycoin/cx/cx/ast"
+	"github.com/skycoin/cx/cx/constants"
+	"github.com/skycoin/cx/cx/globals"
+	"github.com/skycoin/cx/cx/util2"
 	"os"
 
 	"github.com/skycoin/skycoin/src/cipher/encoder"
-
-	. "github.com/skycoin/cx/cx"
 )
 
 // ReturnExpressions stores the `Size` of the return arguments represented by `Expressions`.
 // For example: `return foo() + bar()` is a set of 3 expressions and they represent a single return argument
 type ReturnExpressions struct {
 	Size        int
-	Expressions []*CXExpression
+	Expressions []*ast.CXExpression
 }
 
-func IterationExpressions(init []*CXExpression, cond []*CXExpression, incr []*CXExpression, statements []*CXExpression) []*CXExpression {
-	jmpFn := Natives[OP_JMP]
+func IterationExpressions(init []*ast.CXExpression, cond []*ast.CXExpression, incr []*ast.CXExpression, statements []*ast.CXExpression) []*ast.CXExpression {
+	jmpFn := ast.Natives[constants.OP_JMP]
 
-	pkg, err := PRGRM.GetCurrentPackage()
+	pkg, err := AST.GetCurrentPackage()
 	if err != nil {
 		panic(err)
 	}
 
-	upExpr := MakeExpression(jmpFn, CurrentFile, LineNo)
+	upExpr := ast.MakeExpression(jmpFn, CurrentFile, LineNo)
 	upExpr.Package = pkg
 
-	trueArg := WritePrimary(TYPE_BOOL, encoder.Serialize(true), false)
+	trueArg := WritePrimary(constants.TYPE_BOOL, encoder.Serialize(true), false)
 
 	upLines := (len(statements) + len(incr) + len(cond) + 2) * -1
 	downLines := 0
@@ -36,11 +38,11 @@ func IterationExpressions(init []*CXExpression, cond []*CXExpression, incr []*CX
 	upExpr.ThenLines = upLines
 	upExpr.ElseLines = downLines
 
-	downExpr := MakeExpression(jmpFn, CurrentFile, LineNo)
+	downExpr := ast.MakeExpression(jmpFn, CurrentFile, LineNo)
 	downExpr.Package = pkg
 
 	if len(cond[len(cond)-1].Outputs) < 1 {
-		predicate := MakeArgument(MakeGenSym(LOCAL_PREFIX), CurrentFile, LineNo).AddType(TypeNames[cond[len(cond)-1].Operator.Outputs[0].Type])
+		predicate := ast.MakeArgument(globals.MakeGenSym(constants.LOCAL_PREFIX), CurrentFile, LineNo).AddType(constants.TypeNames[cond[len(cond)-1].Operator.Outputs[0].Type])
 		predicate.Package = pkg
 		predicate.PreviouslyDeclared = true
 		cond[len(cond)-1].AddOutput(predicate)
@@ -84,61 +86,61 @@ func IterationExpressions(init []*CXExpression, cond []*CXExpression, incr []*CX
 	return exprs
 }
 
-func trueJmpExpressions() []*CXExpression {
-	pkg, err := PRGRM.GetCurrentPackage()
+func trueJmpExpressions() []*ast.CXExpression {
+	pkg, err := AST.GetCurrentPackage()
 	if err != nil {
 		panic(err)
 	}
 
-	expr := MakeExpression(Natives[OP_JMP], CurrentFile, LineNo)
+	expr := ast.MakeExpression(ast.Natives[constants.OP_JMP], CurrentFile, LineNo)
 
-	trueArg := WritePrimary(TYPE_BOOL, encoder.Serialize(true), false)
+	trueArg := WritePrimary(constants.TYPE_BOOL, encoder.Serialize(true), false)
 	expr.AddInput(trueArg[0].Outputs[0])
 
 	expr.Package = pkg
 
-	return []*CXExpression{expr}
+	return []*ast.CXExpression{expr}
 }
 
-func BreakExpressions() []*CXExpression {
+func BreakExpressions() []*ast.CXExpression {
 	exprs := trueJmpExpressions()
 	exprs[0].IsBreak = true
 	return exprs
 }
 
-func ContinueExpressions() []*CXExpression {
+func ContinueExpressions() []*ast.CXExpression {
 	exprs := trueJmpExpressions()
 	exprs[0].IsContinue = true
 	return exprs
 }
 
-func SelectionExpressions(condExprs []*CXExpression, thenExprs []*CXExpression, elseExprs []*CXExpression) []*CXExpression {
+func SelectionExpressions(condExprs []*ast.CXExpression, thenExprs []*ast.CXExpression, elseExprs []*ast.CXExpression) []*ast.CXExpression {
 	DefineNewScope(thenExprs)
 	DefineNewScope(elseExprs)
 
-	jmpFn := Natives[OP_JMP]
-	pkg, err := PRGRM.GetCurrentPackage()
+	jmpFn := ast.Natives[constants.OP_JMP]
+	pkg, err := AST.GetCurrentPackage()
 	if err != nil {
 		panic(err)
 	}
-	ifExpr := MakeExpression(jmpFn, CurrentFile, LineNo)
+	ifExpr := ast.MakeExpression(jmpFn, CurrentFile, LineNo)
 	ifExpr.Package = pkg
 
-	var predicate *CXArgument
+	var predicate *ast.CXArgument
 	if condExprs[len(condExprs)-1].Operator == nil && !condExprs[len(condExprs)-1].IsMethodCall {
 		// then it's a literal
 		predicate = condExprs[len(condExprs)-1].Outputs[0]
 	} else {
 		// then it's an expression
-		predicate = MakeArgument(MakeGenSym(LOCAL_PREFIX), CurrentFile, LineNo)
+		predicate = ast.MakeArgument(globals.MakeGenSym(constants.LOCAL_PREFIX), CurrentFile, LineNo)
 		if condExprs[len(condExprs)-1].IsMethodCall {
 			// we'll change this once we have access to method's types in
 			// ProcessMethodCall
-			predicate.AddType(TypeNames[TYPE_BOOL])
+			predicate.AddType(constants.TypeNames[constants.TYPE_BOOL])
 			condExprs[len(condExprs)-1].Inputs = append(condExprs[len(condExprs)-1].Outputs, condExprs[len(condExprs)-1].Inputs...)
 			condExprs[len(condExprs)-1].Outputs = nil
 		} else {
-			predicate.AddType(TypeNames[condExprs[len(condExprs)-1].Operator.Outputs[0].Type])
+			predicate.AddType(constants.TypeNames[condExprs[len(condExprs)-1].Operator.Outputs[0].Type])
 		}
 		predicate.PreviouslyDeclared = true
 		condExprs[len(condExprs)-1].Outputs = append(condExprs[len(condExprs)-1].Outputs, predicate)
@@ -153,17 +155,17 @@ func SelectionExpressions(condExprs []*CXExpression, thenExprs []*CXExpression, 
 	ifExpr.ThenLines = thenLines
 	ifExpr.ElseLines = elseLines
 
-	skipExpr := MakeExpression(jmpFn, CurrentFile, LineNo)
+	skipExpr := ast.MakeExpression(jmpFn, CurrentFile, LineNo)
 	skipExpr.Package = pkg
 
-	trueArg := WritePrimary(TYPE_BOOL, encoder.Serialize(true), false)
+	trueArg := WritePrimary(constants.TYPE_BOOL, encoder.Serialize(true), false)
 	skipLines := len(elseExprs)
 
 	skipExpr.AddInput(trueArg[0].Outputs[0])
 	skipExpr.ThenLines = skipLines
 	skipExpr.ElseLines = 0
 
-	var exprs []*CXExpression
+	var exprs []*ast.CXExpression
 	if condExprs[len(condExprs)-1].Operator != nil || condExprs[len(condExprs)-1].IsMethodCall {
 		exprs = append(exprs, condExprs...)
 	}
@@ -176,7 +178,7 @@ func SelectionExpressions(condExprs []*CXExpression, thenExprs []*CXExpression, 
 }
 
 // resolveTypeForUnd tries to determine the type that will be returned from an expression
-func resolveTypeForUnd(expr *CXExpression) int {
+func resolveTypeForUnd(expr *ast.CXExpression) int {
 	if len(expr.Inputs) > 0 {
 		// it's a literal
 		return expr.Inputs[0].Type
@@ -198,16 +200,17 @@ func resolveTypeForUnd(expr *CXExpression) int {
 	return -1
 }
 
-func UndefinedTypeOperation(leftExprs []*CXExpression, rightExprs []*CXExpression, operator *CXFunction) (out []*CXExpression) {
-	pkg, err := PRGRM.GetCurrentPackage()
+//TODO: Delete this function, we always know the correct type and operator to call
+func UndefinedTypeOperation(leftExprs []*ast.CXExpression, rightExprs []*ast.CXExpression, operator *ast.CXFunction) (out []*ast.CXExpression) {
+	pkg, err := AST.GetCurrentPackage()
 	if err != nil {
 		panic(err)
 	}
 
 	if len(leftExprs[len(leftExprs)-1].Outputs) < 1 {
-		name := MakeArgument(MakeGenSym(LOCAL_PREFIX), CurrentFile, LineNo).AddType(TypeNames[resolveTypeForUnd(leftExprs[len(leftExprs)-1])])
+		name := ast.MakeArgument(globals.MakeGenSym(constants.LOCAL_PREFIX), CurrentFile, LineNo).AddType(constants.TypeNames[resolveTypeForUnd(leftExprs[len(leftExprs)-1])])
 		name.Size = leftExprs[len(leftExprs)-1].Operator.Outputs[0].Size
-		name.TotalSize = GetSize(leftExprs[len(leftExprs)-1].Operator.Outputs[0])
+		name.TotalSize = ast.GetSize(leftExprs[len(leftExprs)-1].Operator.Outputs[0])
 		name.Type = leftExprs[len(leftExprs)-1].Operator.Outputs[0].Type
 		name.Package = pkg
 		name.PreviouslyDeclared = true
@@ -216,10 +219,10 @@ func UndefinedTypeOperation(leftExprs []*CXExpression, rightExprs []*CXExpressio
 	}
 
 	if len(rightExprs[len(rightExprs)-1].Outputs) < 1 {
-		name := MakeArgument(MakeGenSym(LOCAL_PREFIX), CurrentFile, LineNo).AddType(TypeNames[resolveTypeForUnd(rightExprs[len(rightExprs)-1])])
+		name := ast.MakeArgument(globals.MakeGenSym(constants.LOCAL_PREFIX), CurrentFile, LineNo).AddType(constants.TypeNames[resolveTypeForUnd(rightExprs[len(rightExprs)-1])])
 
 		name.Size = rightExprs[len(rightExprs)-1].Operator.Outputs[0].Size
-		name.TotalSize = GetSize(rightExprs[len(rightExprs)-1].Operator.Outputs[0])
+		name.TotalSize = ast.GetSize(rightExprs[len(rightExprs)-1].Operator.Outputs[0])
 		name.Type = rightExprs[len(rightExprs)-1].Operator.Outputs[0].Type
 		name.Package = pkg
 		name.PreviouslyDeclared = true
@@ -227,7 +230,7 @@ func UndefinedTypeOperation(leftExprs []*CXExpression, rightExprs []*CXExpressio
 		rightExprs[len(rightExprs)-1].Outputs = append(rightExprs[len(rightExprs)-1].Outputs, name)
 	}
 
-	expr := MakeExpression(operator, CurrentFile, LineNo)
+	expr := ast.MakeExpression(operator, CurrentFile, LineNo)
 	// we can't know the type until we compile the full function
 	expr.IsUndType = true
 	expr.Package = pkg
@@ -236,7 +239,7 @@ func UndefinedTypeOperation(leftExprs []*CXExpression, rightExprs []*CXExpressio
 		// then it's a function call or an array access
 		expr.AddInput(leftExprs[len(leftExprs)-1].Outputs[0])
 
-		if IsTempVar(leftExprs[len(leftExprs)-1].Outputs[0].Name) {
+		if util2.IsTempVar(leftExprs[len(leftExprs)-1].Outputs[0].Name) {
 			out = append(out, leftExprs...)
 		} else {
 			out = append(out, leftExprs[:len(leftExprs)-1]...)
@@ -249,7 +252,7 @@ func UndefinedTypeOperation(leftExprs []*CXExpression, rightExprs []*CXExpressio
 		// then it's a function call or an array access
 		expr.AddInput(rightExprs[len(rightExprs)-1].Outputs[0])
 
-		if IsTempVar(rightExprs[len(rightExprs)-1].Outputs[0].Name) {
+		if util2.IsTempVar(rightExprs[len(rightExprs)-1].Outputs[0].Name) {
 			out = append(out, rightExprs...)
 		} else {
 			out = append(out, rightExprs[:len(rightExprs)-1]...)
@@ -263,87 +266,44 @@ func UndefinedTypeOperation(leftExprs []*CXExpression, rightExprs []*CXExpressio
 	return
 }
 
-func ShorthandExpression(leftExprs []*CXExpression, rightExprs []*CXExpression, op int) []*CXExpression {
-	var operator *CXFunction
-	switch op {
-	case OP_EQUAL:
-		operator = Natives[OP_UND_EQUAL]
-	case OP_UNEQUAL:
-		operator = Natives[OP_UND_UNEQUAL]
-	case OP_BITAND:
-		operator = Natives[OP_UND_BITAND]
-	case OP_BITXOR:
-		operator = Natives[OP_UND_BITXOR]
-	case OP_BITOR:
-		operator = Natives[OP_UND_BITOR]
-	case OP_MUL:
-		operator = Natives[OP_UND_MUL]
-	case OP_DIV:
-		operator = Natives[OP_UND_DIV]
-	case OP_MOD:
-		operator = Natives[OP_UND_MOD]
-	case OP_ADD:
-		// Handling special case of arguments being strings.
-		// In this case we use `str.concat`.
-		rightLen := len(rightExprs) - 1
-		if rightLen >= 0 && len(rightExprs[rightLen].Outputs) > 0 && rightExprs[rightLen].Outputs[0].Type == TYPE_STR {
-			operator = Natives[OP_STR_CONCAT]
-		} else {
-			operator = Natives[OP_UND_ADD]
-		}
-	case OP_SUB:
-		operator = Natives[OP_UND_SUB]
-	case OP_BITSHL:
-		operator = Natives[OP_UND_BITSHL]
-	case OP_BITSHR:
-		operator = Natives[OP_UND_BITSHR]
-	case OP_BITCLEAR:
-		operator = Natives[OP_UND_BITCLEAR]
-	case OP_LT:
-		operator = Natives[OP_UND_LT]
-	case OP_GT:
-		operator = Natives[OP_UND_GT]
-	case OP_LTEQ:
-		operator = Natives[OP_UND_LTEQ]
-	case OP_GTEQ:
-		operator = Natives[OP_UND_GTEQ]
-	}
-
-	return UndefinedTypeOperation(leftExprs, rightExprs, operator)
+// TODO: What is a shorthand expression
+// TODO: Remove
+func ShorthandExpression(leftExprs []*ast.CXExpression, rightExprs []*ast.CXExpression, op int) []*ast.CXExpression {
+	return UndefinedTypeOperation(leftExprs, rightExprs, ast.Natives[op])
 }
 
-func UnaryExpression(op string, prevExprs []*CXExpression) []*CXExpression {
+func UnaryExpression(op string, prevExprs []*ast.CXExpression) []*ast.CXExpression {
 	if len(prevExprs[len(prevExprs)-1].Outputs) == 0 {
-		println(CompilationError(CurrentFile, LineNo), "invalid indirection")
+		println(ast.CompilationError(CurrentFile, LineNo), "invalid indirection")
 		// needs to be stopped immediately
-		os.Exit(CX_COMPILATION_ERROR)
+		os.Exit(constants.CX_COMPILATION_ERROR)
 	}
 
 	// Some properties need to be read from the base argument
 	// due to how we calculate dereferences at the moment.
 	baseOut := prevExprs[len(prevExprs)-1].Outputs[0]
-	exprOut := GetAssignmentElement(prevExprs[len(prevExprs)-1].Outputs[0])
+	exprOut := ast.GetAssignmentElement(prevExprs[len(prevExprs)-1].Outputs[0])
 	switch op {
 	case "*":
 		exprOut.DereferenceLevels++
-		exprOut.DereferenceOperations = append(exprOut.DereferenceOperations, DEREF_POINTER)
+		exprOut.DereferenceOperations = append(exprOut.DereferenceOperations, constants.DEREF_POINTER)
 		if !exprOut.IsArrayFirst {
 			exprOut.IsDereferenceFirst = true
 		}
-		exprOut.DeclarationSpecifiers = append(exprOut.DeclarationSpecifiers, DECL_DEREF)
+		exprOut.DeclarationSpecifiers = append(exprOut.DeclarationSpecifiers, constants.DECL_DEREF)
 		exprOut.IsReference = false
 	case "&":
-		baseOut.PassBy = PASSBY_REFERENCE
-		exprOut.DeclarationSpecifiers = append(exprOut.DeclarationSpecifiers, DECL_POINTER)
-		if len(baseOut.Fields) == 0 && hasDeclSpec(baseOut, DECL_INDEXING) {
+		baseOut.PassBy = constants.PASSBY_REFERENCE
+		exprOut.DeclarationSpecifiers = append(exprOut.DeclarationSpecifiers, constants.DECL_POINTER)
+		if len(baseOut.Fields) == 0 && hasDeclSpec(baseOut, constants.DECL_INDEXING) {
 			// If we're referencing an inner element, like an element of a slice (&slc[0])
 			// or a field of a struct (&struct.fld) we no longer need to add
 			// the OBJECT_HEADER_SIZE to the offset. The runtime uses this field to determine this.
 			baseOut.IsInnerReference = true
 		}
 	case "!":
-		if pkg, err := PRGRM.GetCurrentPackage(); err == nil {
-			expr := MakeExpression(Natives[OP_BOOL_NOT], CurrentFile, LineNo)
+		if pkg, err := AST.GetCurrentPackage(); err == nil {
+			expr := ast.MakeExpression(ast.Natives[constants.OP_BOOL_NOT], CurrentFile, LineNo)
 			expr.Package = pkg
 
 			expr.AddInput(exprOut)
@@ -353,8 +313,8 @@ func UnaryExpression(op string, prevExprs []*CXExpression) []*CXExpression {
 			panic(err)
 		}
 	case "-":
-		if pkg, err := PRGRM.GetCurrentPackage(); err == nil {
-			expr := MakeExpression(Natives[OP_UND_NEG], CurrentFile, LineNo)
+		if pkg, err := AST.GetCurrentPackage(); err == nil {
+			expr := ast.MakeExpression(ast.Natives[constants.OP_NEG], CurrentFile, LineNo)
 			expr.Package = pkg
 			expr.AddInput(exprOut)
 			prevExprs[len(prevExprs)-1] = expr
@@ -367,12 +327,12 @@ func UnaryExpression(op string, prevExprs []*CXExpression) []*CXExpression {
 
 // AssociateReturnExpressions associates the output of `retExprs` to the
 // `idx`th output parameter of the current function.
-func AssociateReturnExpressions(idx int, retExprs []*CXExpression) []*CXExpression {
-	var pkg *CXPackage
-	var fn *CXFunction
+func AssociateReturnExpressions(idx int, retExprs []*ast.CXExpression) []*ast.CXExpression {
+	var pkg *ast.CXPackage
+	var fn *ast.CXFunction
 	var err error
 
-	pkg, err = PRGRM.GetCurrentPackage()
+	pkg, err = AST.GetCurrentPackage()
 	if err != nil {
 		panic(err)
 	}
@@ -386,13 +346,13 @@ func AssociateReturnExpressions(idx int, retExprs []*CXExpression) []*CXExpressi
 
 	outParam := fn.Outputs[idx]
 
-	out := MakeArgument(outParam.Name, CurrentFile, LineNo)
-	out.AddType(TypeNames[outParam.Type])
+	out := ast.MakeArgument(outParam.Name, CurrentFile, LineNo)
+	out.AddType(constants.TypeNames[outParam.Type])
 	out.CustomType = outParam.CustomType
 	out.PreviouslyDeclared = true
 
 	if lastExpr.Operator == nil {
-		lastExpr.Operator = Natives[OP_IDENTITY]
+		lastExpr.Operator = ast.Natives[constants.OP_IDENTITY]
 
 		lastExpr.Inputs = lastExpr.Outputs
 		lastExpr.Outputs = nil
@@ -400,7 +360,7 @@ func AssociateReturnExpressions(idx int, retExprs []*CXExpression) []*CXExpressi
 
 		return retExprs
 	} else if len(lastExpr.Outputs) > 0 {
-		expr := MakeExpression(Natives[OP_IDENTITY], CurrentFile, LineNo)
+		expr := ast.MakeExpression(ast.Natives[constants.OP_IDENTITY], CurrentFile, LineNo)
 		expr.AddInput(lastExpr.Outputs[0])
 		expr.AddOutput(out)
 
@@ -413,12 +373,12 @@ func AssociateReturnExpressions(idx int, retExprs []*CXExpression) []*CXExpressi
 }
 
 // AddJmpToReturnExpressions adds an jump expression that makes a function stop its execution
-func AddJmpToReturnExpressions(exprs ReturnExpressions) []*CXExpression {
-	var pkg *CXPackage
-	var fn *CXFunction
+func AddJmpToReturnExpressions(exprs ReturnExpressions) []*ast.CXExpression {
+	var pkg *ast.CXPackage
+	var fn *ast.CXFunction
 	var err error
 
-	pkg, err = PRGRM.GetCurrentPackage()
+	pkg, err = AST.GetCurrentPackage()
 	if err != nil {
 		panic(err)
 	}
@@ -444,18 +404,18 @@ func AddJmpToReturnExpressions(exprs ReturnExpressions) []*CXExpression {
 			plural3 = "was"
 		}
 
-		println(CompilationError(lastExpr.FileName, lastExpr.FileLine), fmt.Sprintf("function '%s' expects to return %d argument%s, but %d output argument%s %s provided", fn.Name, len(fn.Outputs), plural1, exprs.Size, plural2, plural3))
+		println(ast.CompilationError(lastExpr.FileName, lastExpr.FileLine), fmt.Sprintf("function '%s' expects to return %d argument%s, but %d output argument%s %s provided", fn.Name, len(fn.Outputs), plural1, exprs.Size, plural2, plural3))
 	}
 
 	// expression to jump to the end of the embedding function
-	expr := MakeExpression(Natives[OP_JMP], CurrentFile, LineNo)
+	expr := ast.MakeExpression(ast.Natives[constants.OP_JMP], CurrentFile, LineNo)
 
 	// simulating a label so it gets executed without evaluating a predicate
-	expr.Label = MakeGenSym(LABEL_PREFIX)
-	expr.ThenLines = MAX_INT32
+	expr.Label = globals.MakeGenSym(constants.LABEL_PREFIX)
+	expr.ThenLines = constants.MAX_INT32
 	expr.Package = pkg
 
-	arg := MakeArgument("", CurrentFile, LineNo).AddType("bool")
+	arg := ast.MakeArgument("", CurrentFile, LineNo).AddType("bool")
 	arg.Package = pkg
 
 	expr.AddInput(arg)

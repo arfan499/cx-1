@@ -3,59 +3,11 @@
 package cxfx
 
 import (
-	//	"bufio"
-	. "github.com/skycoin/cx/cx"
-	//"github.com/amherag/skycoin/src/cipher/encoder"
-	//	"github.com/mjibson/go-dsp/wav"
+	"github.com/skycoin/cx/cx/ast"
+	"github.com/skycoin/cx/cx/helper"
 	"golang.org/x/mobile/exp/audio/al"
 )
 
-/*func opAlLoadWav(prgrm *CXProgram) {
-	expr := prgrm.GetExpr()
-	fp := prgrm.GetFramePointer()
-
-	file, err := CXOpenFile(ReadStr(fp, expr.Inputs[0]))
-	defer file.Close()
-	if err != nil {
-		panic(err)
-	}
-	reader := bufio.NewReader(file)
-
-	wav, err := wav.New(reader)
-	if err != nil {
-		panic(err)
-	}
-
-	samples, err := wav.ReadSamples(wav.Samples)
-	if err != nil {
-		panic(err)
-	}
-
-	data := encoder.Serialize(samples)
-
-	WriteMemory(GetFinalOffset(fp, expr.Outputs[0]), FromI32(int32(wav.Header.AudioFormat)))
-	WriteMemory(GetFinalOffset(fp, expr.Outputs[1]), FromI32(int32(wav.Header.NumChannels)))
-	WriteMemory(GetFinalOffset(fp, expr.Outputs[2]), FromI32(int32(wav.Header.SampleRate)))
-	WriteMemory(GetFinalOffset(fp, expr.Outputs[3]), FromI32(int32(wav.Header.ByteRate)))
-	WriteMemory(GetFinalOffset(fp, expr.Outputs[4]), FromI32(int32(wav.Header.BlockAlign)))
-	WriteMemory(GetFinalOffset(fp, expr.Outputs[5]), FromI32(int32(wav.Header.BitsPerSample)))
-	WriteMemory(GetFinalOffset(fp, expr.Outputs[6]), FromI32(int32(wav.Samples)))
-	WriteMemory(GetFinalOffset(fp, expr.Outputs[7]), FromI64(int64(wav.Duration)))
-
-	outputSlicePointer := GetFinalOffset(fp, expr.Outputs[8])
-	outputSliceOffset := GetPointerOffset(int32(outputSlicePointer))
-	outputSliceOffset = int32(SliceResizeEx(outputSliceOffset, int32(len(data)), 1))
-	copy(GetSliceData(outputSliceOffset, 1), data)
-	copy(PROGRAM.Memory[outputSlicePointer:], FromI32(outputSliceOffset))
-}*/
-
-/*func toBytes(in interface{}) []byte { // REFACTOR : ??
-	if in != nil {
-		return in.([]byte)
-	}
-	return nil
-}
-*/
 func toBuffers(in interface{}) []al.Buffer { // REFACTOR : ??
 	var out []al.Buffer
 	var buffers []int32 = in.([]int32)
@@ -74,193 +26,129 @@ func toSources(in interface{}) []al.Source { // REFACTOR : ??
 	return out
 }
 
-func opAlCloseDevice(_ *CXProgram) {
+func opAlCloseDevice(inputs []ast.CXValue, outputs []ast.CXValue) {
 	al.CloseDevice()
 }
 
-func opAlDeleteBuffers(prgrm *CXProgram) {
-	expr := prgrm.GetExpr()
-	fp := prgrm.GetFramePointer()
-
-	buffers := toBuffers(ReadData(fp, expr.Inputs[0], TYPE_I32))
+func opAlDeleteBuffers(inputs []ast.CXValue, outputs []ast.CXValue) {
+	buffers := toBuffers(inputs[0].GetSlice_i32())
 	al.DeleteBuffers(buffers...)
 }
 
-func opAlDeleteSources(prgrm *CXProgram) {
-	expr := prgrm.GetExpr()
-	fp := prgrm.GetFramePointer()
-
-	sources := toSources(ReadData(fp, expr.Inputs[0], TYPE_I32))
+func opAlDeleteSources(inputs []ast.CXValue, outputs []ast.CXValue) {
+	sources := toSources(inputs[0].GetSlice_i32())
 	al.DeleteSources(sources...)
 }
 
-func opAlDeviceError(prgrm *CXProgram) {
-	expr := prgrm.GetExpr()
-	fp := prgrm.GetFramePointer()
-
+func opAlDeviceError(inputs []ast.CXValue, outputs []ast.CXValue) {
 	err := al.DeviceError()
-	WriteI32(GetFinalOffset(fp, expr.Outputs[0]), err)
+	outputs[0].Set_i32(err)
 }
 
-func opAlError(prgrm *CXProgram) {
-	expr := prgrm.GetExpr()
-	fp := prgrm.GetFramePointer()
-
+func opAlError(inputs []ast.CXValue, outputs []ast.CXValue) {
 	err := al.Error()
-	WriteI32(GetFinalOffset(fp, expr.Outputs[0]), err)
+	outputs[0].Set_i32(err)
 }
 
-func opAlExtensions(prgrm *CXProgram) {
-	expr := prgrm.GetExpr()
-	fp := prgrm.GetFramePointer()
-
+func opAlExtensions(inputs []ast.CXValue, outputs []ast.CXValue) {
 	extensions := al.Extensions()
-	WriteObject(GetFinalOffset(fp, expr.Outputs[0]), FromStr(extensions))
+	outputs[0].Set_str(extensions)
 }
 
-func opAlOpenDevice(_ *CXProgram) {
+func opAlOpenDevice(inputs []ast.CXValue, outputs []ast.CXValue) {
 	if err := al.OpenDevice(); err != nil {
 		panic(err)
 	}
 }
 
-func opAlPauseSources(prgrm *CXProgram) {
-	expr := prgrm.GetExpr()
-	fp := prgrm.GetFramePointer()
-
-	sources := toSources(ReadData(fp, expr.Inputs[0], TYPE_I32))
+func opAlPauseSources(inputs []ast.CXValue, outputs []ast.CXValue) {
+	sources := toSources(inputs[0].GetSlice_i32())
 	al.PauseSources(sources...)
 }
 
-func opAlPlaySources(prgrm *CXProgram) {
-	expr := prgrm.GetExpr()
-	fp := prgrm.GetFramePointer()
-
-	sources := toSources(ReadData(fp, expr.Inputs[0], TYPE_I32))
+func opAlPlaySources(inputs []ast.CXValue, outputs []ast.CXValue) {
+	sources := toSources(inputs[0].GetSlice_i32())
 	al.PlaySources(sources...)
 }
 
-func opAlRenderer(prgrm *CXProgram) {
-	expr := prgrm.GetExpr()
-	fp := prgrm.GetFramePointer()
-
+func opAlRenderer(inputs []ast.CXValue, outputs []ast.CXValue) {
 	renderer := al.Renderer()
-	WriteObject(GetFinalOffset(fp, expr.Outputs[0]), FromStr(renderer))
+    outputs[0].Set_str(renderer)
 }
 
-func opAlRewindSources(prgrm *CXProgram) {
-	expr := prgrm.GetExpr()
-	fp := prgrm.GetFramePointer()
-
-	sources := toSources(ReadData(fp, expr.Inputs[0], TYPE_I32))
+func opAlRewindSources(inputs []ast.CXValue, outputs []ast.CXValue) {
+	sources := toSources(inputs[0].GetSlice_i32())
 	al.RewindSources(sources...)
 }
 
-func opAlStopSources(prgrm *CXProgram) {
-	expr := prgrm.GetExpr()
-	fp := prgrm.GetFramePointer()
-
-	sources := toSources(ReadData(fp, expr.Inputs[0], TYPE_I32))
+func opAlStopSources(inputs []ast.CXValue, outputs []ast.CXValue) {
+	sources := toSources(inputs[0].GetSlice_i32())
 	al.StopSources(sources...)
 }
 
-func opAlVendor(prgrm *CXProgram) {
-	expr := prgrm.GetExpr()
-	fp := prgrm.GetFramePointer()
-
+func opAlVendor(inputs []ast.CXValue, outputs []ast.CXValue) {
 	vendor := al.Vendor()
-	WriteObject(GetFinalOffset(fp, expr.Outputs[0]), FromStr(vendor))
+    outputs[0].Set_str(vendor)
 }
 
-func opAlVersion(prgrm *CXProgram) {
-	expr := prgrm.GetExpr()
-	fp := prgrm.GetFramePointer()
-
+func opAlVersion(inputs []ast.CXValue, outputs []ast.CXValue) {
 	version := al.Version()
-	WriteObject(GetFinalOffset(fp, expr.Outputs[0]), FromStr(version))
+    outputs[0].Set_str(version)
 }
 
-func opAlGenBuffers(prgrm *CXProgram) {
-	expr := prgrm.GetExpr()
-	fp := prgrm.GetFramePointer()
-
-	buffers := al.GenBuffers(int(ReadI32(fp, expr.Inputs[0])))
-	outputSlice := expr.Outputs[0]
-	outputSlicePointer := GetFinalOffset(fp, outputSlice)
-	outputSliceOffset := GetPointerOffset(int32(outputSlicePointer))
+func opAlGenBuffers(inputs []ast.CXValue, outputs []ast.CXValue) {
+	buffers := al.GenBuffers(int(inputs[0].Get_i32()))
+	outputSlicePointer := outputs[0].Offset
+	outputSliceOffset := ast.GetPointerOffset(int32(outputSlicePointer))
 	for _, b := range buffers { // REFACTOR append with copy ?
-		obj := FromI32(int32(b))
-		outputSliceOffset = int32(WriteToSlice(int(outputSliceOffset), obj))
+		obj := helper.FromI32(int32(b))
+		outputSliceOffset = int32(ast.WriteToSlice(int(outputSliceOffset), obj))
 	}
-	WriteI32(outputSlicePointer, outputSliceOffset)
-	//copy(PROGRAM.Memory[outputSlicePointer:], FromI32(outputSliceOffset))
+    outputs[0].SetSlice(outputSliceOffset)
 }
 
-func opAlBufferData(prgrm *CXProgram) {
-	expr := prgrm.GetExpr()
-	fp := prgrm.GetFramePointer()
-
-	buffer := al.Buffer(ReadI32(fp, expr.Inputs[0]))
-	format := ReadI32(fp, expr.Inputs[1])
-	data := toBytes(ReadData(fp, expr.Inputs[2], TYPE_UI8))
-	frequency := ReadI32(fp, expr.Inputs[3])
+func opAlBufferData(inputs []ast.CXValue, outputs []ast.CXValue) {
+	buffer := al.Buffer(inputs[0].Get_i32())
+	format := inputs[1].Get_i32()
+	data := toBytes(inputs[2].GetSlice_ui8())
+	frequency := inputs[3].Get_i32()
 	buffer.BufferData(uint32(format), data, frequency)
 }
 
-func opAlGenSources(prgrm *CXProgram) {
-	expr := prgrm.GetExpr()
-	fp := prgrm.GetFramePointer()
-
-	sources := al.GenSources(int(ReadI32(fp, expr.Inputs[0])))
-	outputSlice := expr.Outputs[0]
-	outputSlicePointer := GetFinalOffset(fp, outputSlice)
-	outputSliceOffset := GetPointerOffset(int32(outputSlicePointer))
+func opAlGenSources(inputs []ast.CXValue, outputs []ast.CXValue) {
+	sources := al.GenSources(int(inputs[0].Get_i32()))
+	outputSlicePointer := outputs[0].Offset
+	outputSliceOffset := ast.GetPointerOffset(int32(outputSlicePointer))
 	for _, s := range sources { // REFACTOR append with copy ?
-		obj := FromI32(int32(s))
-		outputSliceOffset = int32(WriteToSlice(int(outputSliceOffset), obj))
+		obj := helper.FromI32(int32(s))
+		outputSliceOffset = int32(ast.WriteToSlice(int(outputSliceOffset), obj))
 	}
-	WriteI32(outputSlicePointer, outputSliceOffset)
-	//copy(PROGRAM.Memory[outputSlicePointer:], FromI32(outputSliceOffset))
+    outputs[0].SetSlice(outputSliceOffset)
 }
 
-func opAlSourceBuffersProcessed(prgrm *CXProgram) {
-	expr := prgrm.GetExpr()
-	fp := prgrm.GetFramePointer()
-
-	source := al.Source(ReadI32(fp, expr.Inputs[0]))
-	WriteObject(GetFinalOffset(fp, expr.Outputs[0]), FromI32(source.BuffersProcessed()))
+func opAlSourceBuffersProcessed(inputs []ast.CXValue, outputs []ast.CXValue) {
+	source := al.Source(inputs[0].Get_i32())
+    outputs[0].Set_i32(source.BuffersProcessed())
 }
 
-func opAlSourceBuffersQueued(prgrm *CXProgram) {
-	expr := prgrm.GetExpr()
-	fp := prgrm.GetFramePointer()
-
-	source := al.Source(ReadI32(fp, expr.Inputs[0]))
-	WriteObject(GetFinalOffset(fp, expr.Outputs[0]), FromI32(source.BuffersQueued()))
+func opAlSourceBuffersQueued(inputs []ast.CXValue, outputs []ast.CXValue) {
+	source := al.Source(inputs[0].Get_i32())
+	outputs[0].Set_i32(source.BuffersQueued())
 }
 
-func opAlSourceQueueBuffers(prgrm *CXProgram) {
-	expr := prgrm.GetExpr()
-	fp := prgrm.GetFramePointer()
-
-	source := al.Source(ReadI32(fp, expr.Inputs[0]))
-	buffers := toBuffers(ReadData(fp, expr.Inputs[1], TYPE_I32))
+func opAlSourceQueueBuffers(inputs []ast.CXValue, outputs []ast.CXValue) {
+	source := al.Source(inputs[0].Get_i32())
+	buffers := toBuffers(inputs[1].GetSlice_i32())
 	source.QueueBuffers(buffers...)
 }
 
-func opAlSourceState(prgrm *CXProgram) {
-	expr := prgrm.GetExpr()
-	fp := prgrm.GetFramePointer()
-
-	source := al.Source(ReadI32(fp, expr.Inputs[0]))
-	WriteObject(GetFinalOffset(fp, expr.Outputs[0]), FromI32(source.State()))
+func opAlSourceState(inputs []ast.CXValue, outputs []ast.CXValue) {
+	source := al.Source(inputs[0].Get_i32())
+    outputs[0].Set_i32(source.State())
 }
 
-func opAlSourceUnqueueBuffers(prgrm *CXProgram) {
-	expr := prgrm.GetExpr()
-	fp := prgrm.GetFramePointer()
-
-	source := al.Source(ReadI32(fp, expr.Inputs[0]))
-	buffers := toBuffers(ReadData(fp, expr.Inputs[1], TYPE_I32))
+func opAlSourceUnqueueBuffers(inputs []ast.CXValue, outputs []ast.CXValue) {
+	source := al.Source(inputs[0].Get_i32())
+	buffers := toBuffers(inputs[1].GetSlice_i32())
 	source.UnqueueBuffers(buffers...)
 }

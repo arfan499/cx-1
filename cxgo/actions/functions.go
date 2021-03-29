@@ -3,9 +3,11 @@ package actions
 import (
 	"errors"
 	"fmt"
+	"github.com/skycoin/cx/cx/ast"
+	"github.com/skycoin/cx/cx/constants"
+	"github.com/skycoin/cx/cx/globals"
+	"github.com/skycoin/cx/cx/util2"
 	"os"
-
-	. "github.com/skycoin/cx/cx"
 
 	"github.com/jinzhu/copier"
 )
@@ -17,20 +19,20 @@ import (
 // If the function is a method (isMethod = true), then it adds the object that
 // it's called on as the first argument.
 //
-func FunctionHeader(ident string, receiver []*CXArgument, isMethod bool) *CXFunction {
+func FunctionHeader(ident string, receiver []*ast.CXArgument, isMethod bool) *ast.CXFunction {
 	if isMethod {
 		if len(receiver) > 1 {
 			panic("method has multiple receivers")
 		}
-		if pkg, err := PRGRM.GetCurrentPackage(); err == nil {
+		if pkg, err := AST.GetCurrentPackage(); err == nil {
 			fnName := receiver[0].CustomType.Name + "." + ident
 
-			if fn, err := PRGRM.GetFunction(fnName, pkg.Name); err == nil {
+			if fn, err := AST.GetFunction(fnName, pkg.Name); err == nil {
 				fn.AddInput(receiver[0])
 				pkg.CurrentFunction = fn
 				return fn
 			} else {
-				fn := MakeFunction(fnName, CurrentFile, LineNo)
+				fn := ast.MakeFunction(fnName, CurrentFile, LineNo)
 				pkg.AddFunction(fn)
 				fn.AddInput(receiver[0])
 				return fn
@@ -39,12 +41,12 @@ func FunctionHeader(ident string, receiver []*CXArgument, isMethod bool) *CXFunc
 			panic(err)
 		}
 	} else {
-		if pkg, err := PRGRM.GetCurrentPackage(); err == nil {
-			if fn, err := PRGRM.GetFunction(ident, pkg.Name); err == nil {
+		if pkg, err := AST.GetCurrentPackage(); err == nil {
+			if fn, err := AST.GetFunction(ident, pkg.Name); err == nil {
 				pkg.CurrentFunction = fn
 				return fn
 			} else {
-				fn := MakeFunction(ident, CurrentFile, LineNo)
+				fn := ast.MakeFunction(ident, CurrentFile, LineNo)
 				pkg.AddFunction(fn)
 				return fn
 			}
@@ -54,7 +56,7 @@ func FunctionHeader(ident string, receiver []*CXArgument, isMethod bool) *CXFunc
 	}
 }
 
-func FunctionAddParameters(fn *CXFunction, inputs, outputs []*CXArgument) {
+func FunctionAddParameters(fn *ast.CXFunction, inputs, outputs []*ast.CXArgument) {
 	if len(fn.Inputs) != len(inputs) {
 		// it must be a method declaration
 		// so we save the first input
@@ -76,39 +78,48 @@ func FunctionAddParameters(fn *CXFunction, inputs, outputs []*CXArgument) {
 	}
 
 	for _, out := range fn.Outputs {
-		if out.IsPointer && out.Type != TYPE_STR && out.Type != TYPE_AFF {
+		if out.IsPointer && out.Type != constants.TYPE_STR && out.Type != constants.TYPE_AFF {
 			out.DoesEscape = true
 		}
 	}
 }
 
-func isParseOp(expr *CXExpression) bool {
-	if expr.Operator != nil && expr.Operator.OpCode > START_PARSE_OPS && expr.Operator.OpCode < END_PARSE_OPS {
+func isParseOp(expr *ast.CXExpression) bool {
+	if expr.Operator != nil && expr.Operator.OpCode > constants.START_PARSE_OPS && expr.Operator.OpCode < constants.END_PARSE_OPS {
 		return true
 	}
 	return false
 }
 
 // CheckUndValidTypes checks if an expression with a generic operator (operators that
-// accept `TYPE_UNDEFINED` arguments) is receiving arguments of valid types. For example,
+// accept `cxcore.TYPE_UNDEFINED` arguments) is receiving arguments of valid types. For example,
 // the expression `sa + sb` is not valid if they are struct instances.
-func CheckUndValidTypes(expr *CXExpression) {
-	if expr.Operator != nil && IsUndOpBasicTypes(expr.Operator) && !IsAllArgsBasicTypes(expr) {
-		println(CompilationError(CurrentFile, LineNo), fmt.Sprintf("invalid argument types for '%s' operator", OpNames[expr.Operator.OpCode]))
+func CheckUndValidTypes(expr *ast.CXExpression) {
+	if expr.Operator != nil && ast.IsOperator(expr.Operator.OpCode) && !IsAllArgsBasicTypes(expr) {
+		println(ast.CompilationError(CurrentFile, LineNo), fmt.Sprintf("invalid argument types for '%s' operator", ast.OpNames[expr.Operator.OpCode]))
 	}
 }
 
-// CheckConcatStr checks if `expr`'s operator is OP_UND_ADD and if its operands are of type str.
-// If this is the case, the operator is changed to OP_STR_CONCAT to concatenate the strings.
-func CheckConcatStr(expr *CXExpression) {
-	if expr.Operator != nil && expr.Operator.OpCode == OP_UND_ADD &&
-		expr.Inputs[0].Type == TYPE_STR && expr.Inputs[1].Type == TYPE_STR {
-		expr.Operator = Natives[OP_STR_CONCAT]
+func FunctionProcessParameters(symbols *[]map[string]*ast.CXArgument, symbolsScope *map[string]bool, offset *int, fn *ast.CXFunction, params []*ast.CXArgument) {
+	for _, param := range params {
+		ProcessLocalDeclaration(symbols, symbolsScope, param)
+
+		UpdateSymbolsTable(symbols, param, offset, false)
+		GiveOffset(symbols, param, offset, false)
+		SetFinalSize(symbols, param)
+
+		AddPointer(fn, param)
+
+		// as these are declarations, they should not have any dereference operations
+		param.DereferenceOperations = nil
 	}
 }
 
-func FunctionDeclaration(fn *CXFunction, inputs, outputs []*CXArgument, exprs []*CXExpression) {
-	if FoundCompileErrors {
+func FunctionDeclaration(fn *ast.CXFunction, inputs, outputs []*ast.CXArgument, exprs []*ast.CXExpression) {
+
+	//var exprs []*cxcore.CXExpression = globals.SysInitExprs
+
+	if globals.FoundCompileErrors {
 		return
 	}
 
@@ -116,28 +127,32 @@ func FunctionDeclaration(fn *CXFunction, inputs, outputs []*CXArgument, exprs []
 
 	// getting offset to use by statements (excluding inputs, outputs and receiver)
 	var offset int
-	PRGRM.HeapStartsAt = DataOffset
+	//TODO: Why would the heap starting position always be incrasing?
+	//TODO: HeapStartsAt only increases, with every write?
+	//DataOffset only increases
+	AST.HeapStartsAt = DataOffset //Why would declaring a function set heap?
+	//AST.HeapStartsAt = constants.STACK_SIZE
 
 	ProcessGoTos(fn, exprs)
 
 	fn.Length = len(fn.Expressions)
 
 	// each element in the slice corresponds to a different scope
-	var symbols *[]map[string]*CXArgument
-	tmp := make([]map[string]*CXArgument, 0)
+	var symbols *[]map[string]*ast.CXArgument
+	tmp := make([]map[string]*ast.CXArgument, 0)
 	symbols = &tmp
-	*symbols = append(*symbols, make(map[string]*CXArgument, 0))
+	*symbols = append(*symbols, make(map[string]*ast.CXArgument))
 
 	// this variable only handles the difference between local and global scopes
 	// local being function constrained variables, and global being global variables
-	var symbolsScope map[string]bool = make(map[string]bool, 0)
+	var symbolsScope map[string]bool = make(map[string]bool)
 
 	FunctionProcessParameters(symbols, &symbolsScope, &offset, fn, fn.Inputs)
 	FunctionProcessParameters(symbols, &symbolsScope, &offset, fn, fn.Outputs)
 
 	for i, expr := range fn.Expressions {
 		if expr.ScopeOperation == SCOPE_NEW {
-			*symbols = append(*symbols, make(map[string]*CXArgument, 0))
+			*symbols = append(*symbols, make(map[string]*ast.CXArgument))
 		}
 
 		ProcessMethodCall(expr, symbols, &offset, true)
@@ -152,8 +167,11 @@ func FunctionDeclaration(fn *CXFunction, inputs, outputs []*CXArgument, exprs []
 		ProcessStringAssignment(expr)
 		ProcessReferenceAssignment(expr)
 
+		//if expr.Outputs[0].IsShortAssignmentDeclaration {
+		//	panic("ATWETEWTASGDFG")
+		//}
 		// process short declaration
-		if len(expr.Outputs) > 0 && len(expr.Inputs) > 0 && expr.Outputs[0].IsShortDeclaration && !expr.IsStructLiteral && !isParseOp(expr) {
+		if len(expr.Outputs) > 0 && len(expr.Inputs) > 0 && expr.Outputs[0].IsShortAssignmentDeclaration && !expr.IsStructLiteral && !isParseOp(expr) {
 			if expr.IsMethodCall {
 				fn.Expressions[i-1].Outputs[0].Type = fn.Expressions[i].Operator.Outputs[0].Type
 				fn.Expressions[i].Outputs[0].Type = fn.Expressions[i].Operator.Outputs[0].Type
@@ -167,7 +185,6 @@ func FunctionDeclaration(fn *CXFunction, inputs, outputs []*CXArgument, exprs []
 
 		CheckTypes(expr)
 		CheckUndValidTypes(expr)
-		CheckConcatStr(expr)
 
 		if expr.ScopeOperation == SCOPE_REM {
 			*symbols = (*symbols)[:len(*symbols)-1]
@@ -177,18 +194,18 @@ func FunctionDeclaration(fn *CXFunction, inputs, outputs []*CXArgument, exprs []
 	fn.Size = offset
 }
 
-func FunctionCall(exprs []*CXExpression, args []*CXExpression) []*CXExpression {
+func FunctionCall(exprs []*ast.CXExpression, args []*ast.CXExpression) []*ast.CXExpression {
 	expr := exprs[len(exprs)-1]
 
 	if expr.Operator == nil {
 		opName := expr.Outputs[0].Name
 		opPkg := expr.Outputs[0].Package
 
-		if op, err := PRGRM.GetFunction(opName, opPkg.Name); err == nil {
+		if op, err := AST.GetFunction(opName, opPkg.Name); err == nil {
 			expr.Operator = op
 		} else if expr.Outputs[0].Fields == nil {
 			// then it's not a possible method call
-			println(CompilationError(CurrentFile, LineNo), err.Error())
+			println(ast.CompilationError(CurrentFile, LineNo), err.Error())
 			return nil
 		} else {
 			expr.IsMethodCall = true
@@ -199,7 +216,7 @@ func FunctionCall(exprs []*CXExpression, args []*CXExpression) []*CXExpression {
 		}
 	}
 
-	var nestedExprs []*CXExpression
+	var nestedExprs []*ast.CXExpression
 	for _, inpExpr := range args {
 		if inpExpr.Operator == nil {
 			// then it's a literal
@@ -207,20 +224,20 @@ func FunctionCall(exprs []*CXExpression, args []*CXExpression) []*CXExpression {
 		} else {
 			// then it's a function call
 			if len(inpExpr.Outputs) < 1 {
-				var out *CXArgument
+				var out *ast.CXArgument
 
-				if inpExpr.Operator.Outputs[0].Type == TYPE_UNDEFINED {
+				if inpExpr.Operator.Outputs[0].Type == constants.TYPE_UNDEFINED {
 					// if undefined type, then adopt argument's type
-					out = MakeArgument(MakeGenSym(LOCAL_PREFIX), CurrentFile, inpExpr.FileLine).AddType(TypeNames[inpExpr.Inputs[0].Type])
+					out = ast.MakeArgument(globals.MakeGenSym(constants.LOCAL_PREFIX), CurrentFile, inpExpr.FileLine).AddType(constants.TypeNames[inpExpr.Inputs[0].Type])
 					out.CustomType = inpExpr.Inputs[0].CustomType
 
 					out.Size = inpExpr.Inputs[0].Size
-					out.TotalSize = GetSize(inpExpr.Inputs[0])
+					out.TotalSize = ast.GetSize(inpExpr.Inputs[0])
 
 					out.Type = inpExpr.Inputs[0].Type
 					out.PreviouslyDeclared = true
 				} else {
-					out = MakeArgument(MakeGenSym(LOCAL_PREFIX), CurrentFile, inpExpr.FileLine).AddType(TypeNames[inpExpr.Operator.Outputs[0].Type])
+					out = ast.MakeArgument(globals.MakeGenSym(constants.LOCAL_PREFIX), CurrentFile, inpExpr.FileLine).AddType(constants.TypeNames[inpExpr.Operator.Outputs[0].Type])
 					out.DeclarationSpecifiers = inpExpr.Operator.Outputs[0].DeclarationSpecifiers
 
 					out.CustomType = inpExpr.Operator.Outputs[0].CustomType
@@ -232,7 +249,7 @@ func FunctionCall(exprs []*CXExpression, args []*CXExpression) []*CXExpression {
 						}
 					} else {
 						out.Size = inpExpr.Operator.Outputs[0].Size
-						out.TotalSize = GetSize(inpExpr.Operator.Outputs[0])
+						out.TotalSize = ast.GetSize(inpExpr.Operator.Outputs[0])
 					}
 
 					out.Type = inpExpr.Operator.Outputs[0].Type
@@ -253,20 +270,9 @@ func FunctionCall(exprs []*CXExpression, args []*CXExpression) []*CXExpression {
 	return append(nestedExprs, exprs...)
 }
 
-// Depending on the operator, we're going to return the input's size or a prefixed size (like a Boolean)
-func undOutputSize(expr *CXExpression) int {
-	switch expr.Operator.OpCode {
-	case OP_UND_EQUAL, OP_UND_UNEQUAL, OP_UND_LT, OP_UND_GT, OP_UND_LTEQ, OP_UND_GTEQ:
-		// the result is a Boolean for any of these
-		return 1
-	default:
-		return GetSize(GetAssignmentElement(expr.Inputs[0]))
-	}
-}
-
 // checkSameNativeType checks if all the inputs of an expression are of the same type.
 // It is used mainly to prevent implicit castings in arithmetic operations
-func checkSameNativeType(expr *CXExpression) error {
+func checkSameNativeType(expr *ast.CXExpression) error {
 	if len(expr.Inputs) < 1 {
 		return errors.New("cannot perform arithmetic without operands")
 	}
@@ -280,59 +286,35 @@ func checkSameNativeType(expr *CXExpression) error {
 	return nil
 }
 
-// isUndOpSameInputTypes checks if the received operator belongs to a list of OP_UND_***
-// where its inputs' types must be of the same type
-func isUndOpSameInputTypes(op *CXFunction) bool {
-	switch op.OpCode {
-	case
-		OP_UND_EQUAL,
-		OP_UND_UNEQUAL,
-		OP_UND_BITAND,
-		OP_UND_BITXOR,
-		OP_UND_BITOR,
-		OP_UND_BITCLEAR,
-		OP_UND_MUL,
-		OP_UND_DIV,
-		OP_UND_MOD,
-		OP_UND_ADD,
-		OP_UND_SUB,
-		OP_UND_NEG,
-		OP_UND_LT,
-		OP_UND_GT,
-		OP_UND_LTEQ,
-		OP_UND_GTEQ,
-		OP_UND_BITSHL,
-		OP_UND_BITSHR:
-		return true
-	}
-	return false
-}
-
-func ProcessUndExpression(expr *CXExpression) {
-	if expr.Operator != nil && isUndOpSameInputTypes(expr.Operator) {
+func ProcessUndExpression(expr *ast.CXExpression) {
+	if expr.Operator != nil && ast.IsOperator(expr.Operator.OpCode) {
 		if err := checkSameNativeType(expr); err != nil {
-			println(CompilationError(CurrentFile, LineNo), err.Error())
+			println(ast.CompilationError(CurrentFile, LineNo), err.Error())
 		}
 	}
 	if expr.IsUndType {
 		for _, out := range expr.Outputs {
-			out.Size = undOutputSize(expr)
-			out.TotalSize = out.Size
+            size := 1
+            if !ast.IsComparisonOperator(expr.Operator.OpCode) {
+		        size = ast.GetSize(ast.GetAssignmentElement(expr.Inputs[0]))
+            }
+            out.Size = size
+			out.TotalSize = size
 		}
 	}
 }
 
-func ProcessPointerStructs(expr *CXExpression) {
+func ProcessPointerStructs(expr *ast.CXExpression) {
 	for _, arg := range append(expr.Inputs, expr.Outputs...) {
 		for _, fld := range arg.Fields {
 			if fld.IsPointer && fld.DereferenceLevels == 0 {
 				fld.DereferenceLevels++
-				fld.DereferenceOperations = append(fld.DereferenceOperations, DEREF_POINTER)
+				fld.DereferenceOperations = append(fld.DereferenceOperations, constants.DEREF_POINTER)
 			}
 		}
 		if arg.IsStruct && arg.IsPointer && len(arg.Fields) > 0 && arg.DereferenceLevels == 0 {
 			arg.DereferenceLevels++
-			arg.DereferenceOperations = append(arg.DereferenceOperations, DEREF_POINTER)
+			arg.DereferenceOperations = append(arg.DereferenceOperations, constants.DEREF_POINTER)
 		}
 	}
 }
@@ -340,31 +322,31 @@ func ProcessPointerStructs(expr *CXExpression) {
 // ProcessAssertExpression checks for the special case of test calls. `assert`, `test`, `panic` are operators where
 // their first input's type needs to be the same as its second input's type. This can't be handled by
 // `checkSameNativeType` because these test functions' third input parameter is always a `str`.
-func processTestExpression(expr *CXExpression) {
+func processTestExpression(expr *ast.CXExpression) {
 	if expr.Operator != nil {
 		opCode := expr.Operator.OpCode
-		if opCode == OP_ASSERT || opCode == OP_TEST || opCode == OP_PANIC {
-			inp1Type := GetFormattedType(expr.Inputs[0])
-			inp2Type := GetFormattedType(expr.Inputs[1])
+		if opCode == constants.OP_ASSERT || opCode == constants.OP_TEST || opCode == constants.OP_PANIC {
+			inp1Type := ast.GetFormattedType(expr.Inputs[0])
+			inp2Type := ast.GetFormattedType(expr.Inputs[1])
 			if inp1Type != inp2Type {
-				println(CompilationError(CurrentFile, LineNo), fmt.Sprintf("first and second input arguments' types are not equal in '%s' call ('%s' != '%s')", OpNames[expr.Operator.OpCode], inp1Type, inp2Type))
+				println(ast.CompilationError(CurrentFile, LineNo), fmt.Sprintf("first and second input arguments' types are not equal in '%s' call ('%s' != '%s')", ast.OpNames[expr.Operator.OpCode], inp1Type, inp2Type))
 			}
 		}
 	}
 }
 
 // checkIndexType throws an error if the type of `idx` is not `i32` or `i64`.
-func checkIndexType(idx *CXArgument) {
-	typ := GetFormattedType(idx)
+func checkIndexType(idx *ast.CXArgument) {
+	typ := ast.GetFormattedType(idx)
 	if typ != "i32" && typ != "i64" {
-		println(CompilationError(idx.FileName, idx.FileLine), fmt.Sprintf("wrong index type; expected either 'i32' or 'i64', got '%s'", typ))
+		println(ast.CompilationError(idx.FileName, idx.FileLine), fmt.Sprintf("wrong index type; expected either 'i32' or 'i64', got '%s'", typ))
 	}
 }
 
 // ProcessExpressionArguments performs a series of checks and processes to an expresion's inputs and outputs.
 // Some of these checks are: checking if a an input has not been declared, assign a relative offset to the argument,
 // and calculate the correct size of the argument.
-func ProcessExpressionArguments(symbols *[]map[string]*CXArgument, symbolsScope *map[string]bool, offset *int, fn *CXFunction, args []*CXArgument, expr *CXExpression, isInput bool) {
+func ProcessExpressionArguments(symbols *[]map[string]*ast.CXArgument, symbolsScope *map[string]bool, offset *int, fn *ast.CXFunction, args []*ast.CXArgument, expr *ast.CXExpression, isInput bool) {
 	for _, arg := range args {
 		ProcessLocalDeclaration(symbols, symbolsScope, arg)
 
@@ -409,7 +391,7 @@ func ProcessExpressionArguments(symbols *[]map[string]*CXArgument, symbolsScope 
 }
 
 // isPointerAdded checks if `sym` has already been added to `fn.ListOfPointers`.
-func isPointerAdded(fn *CXFunction, sym *CXArgument) (found bool) {
+func isPointerAdded(fn *ast.CXFunction, sym *ast.CXArgument) (found bool) {
 	for _, ptr := range fn.ListOfPointers {
 		if sym.Name == ptr.Name {
 			if len(sym.Fields) == 0 && len(ptr.Fields) == 0 {
@@ -436,9 +418,9 @@ func isPointerAdded(fn *CXFunction, sym *CXArgument) (found bool) {
 // AddPointer checks if `sym` or its last field, if a struct, behaves like a
 // pointer (slice, pointer, string). If this is the case, `sym` is added to
 // `fn.ListOfPointers` so the CX runtime does not have to determine this.
-func AddPointer(fn *CXFunction, sym *CXArgument) {
+func AddPointer(fn *ast.CXFunction, sym *ast.CXArgument) {
 	// Ignore if it's a global variable.
-	if sym.Offset > PRGRM.StackSize {
+	if sym.Offset > AST.StackSize {
 		return
 	}
 	// We first need to check if we're going to add `sym` with fields.
@@ -451,16 +433,16 @@ func AddPointer(fn *CXFunction, sym *CXArgument) {
 	// added to the list.
 	if len(sym.Fields) > 0 {
 		fld := sym.Fields[len(sym.Fields)-1]
-		if IsPointer(fld) && !isPointerAdded(fn, sym) {
+		if ast.IsPointer(fld) && !isPointerAdded(fn, sym) {
 			fn.ListOfPointers = append(fn.ListOfPointers, sym)
 		}
 	}
 	// Root symbol:
 	// Checking if it is a pointer candidate and if it was already
 	// added to the list.
-	if IsPointer(sym) && !isPointerAdded(fn, sym) {
+	if ast.IsPointer(sym) && !isPointerAdded(fn, sym) {
 		if len(sym.Fields) > 0 {
-			tmp := CXArgument{}
+			tmp := ast.CXArgument{}
 			copier.Copy(&tmp, sym)
 			tmp.Fields = nil
 			fn.ListOfPointers = append(fn.ListOfPointers, &tmp)
@@ -472,42 +454,29 @@ func AddPointer(fn *CXFunction, sym *CXArgument) {
 
 // CheckRedeclared checks if `expr` represents a variable declaration and then checks if an
 // instance of that variable has already been declared.
-func CheckRedeclared(symbols *[]map[string]*CXArgument, expr *CXExpression, sym *CXArgument) {
+func CheckRedeclared(symbols *[]map[string]*ast.CXArgument, expr *ast.CXExpression, sym *ast.CXArgument) {
 	if expr.Operator == nil && len(expr.Outputs) > 0 && len(expr.Inputs) == 0 {
 		lastIdx := len(*symbols) - 1
 
 		_, found := (*symbols)[lastIdx][sym.Package.Name+"."+sym.Name]
 		if found {
-			println(CompilationError(sym.FileName, sym.FileLine), fmt.Sprintf("'%s' redeclared", sym.Name))
+			println(ast.CompilationError(sym.FileName, sym.FileLine), fmt.Sprintf("'%s' redeclared", sym.Name))
 		}
 	}
 }
 
-func ProcessLocalDeclaration(symbols *[]map[string]*CXArgument, symbolsScope *map[string]bool, arg *CXArgument) {
+func ProcessLocalDeclaration(symbols *[]map[string]*ast.CXArgument, symbolsScope *map[string]bool, arg *ast.CXArgument) {
 	if arg.IsLocalDeclaration {
 		(*symbolsScope)[arg.Package.Name+"."+arg.Name] = true
 	}
 	arg.IsLocalDeclaration = (*symbolsScope)[arg.Package.Name+"."+arg.Name]
 }
 
-func FunctionProcessParameters(symbols *[]map[string]*CXArgument, symbolsScope *map[string]bool, offset *int, fn *CXFunction, params []*CXArgument) {
-	for _, param := range params {
-		ProcessLocalDeclaration(symbols, symbolsScope, param)
 
-		UpdateSymbolsTable(symbols, param, offset, false)
-		GiveOffset(symbols, param, offset, false)
-		SetFinalSize(symbols, param)
 
-		AddPointer(fn, param)
-
-		// as these are declarations, they should not have any dereference operations
-		param.DereferenceOperations = nil
-	}
-}
-
-func ProcessGoTos(fn *CXFunction, exprs []*CXExpression) {
+func ProcessGoTos(fn *ast.CXFunction, exprs []*ast.CXExpression) {
 	for i, expr := range exprs {
-		if expr.Label != "" && expr.Operator == Natives[OP_JMP] {
+		if expr.Label != "" && expr.Operator == ast.Natives[constants.OP_JMP] {
 			// then it's a goto
 			for j, e := range exprs {
 				if e.Label == expr.Label && i != j {
@@ -522,10 +491,10 @@ func ProcessGoTos(fn *CXFunction, exprs []*CXExpression) {
 	}
 }
 
-func checkMatchParamTypes(expr *CXExpression, expected, received []*CXArgument, isInputs bool) {
+func checkMatchParamTypes(expr *ast.CXExpression, expected, received []*ast.CXArgument, isInputs bool) {
 	for i, inp := range expected {
-		expectedType := GetFormattedType(expected[i])
-		receivedType := GetFormattedType(received[i])
+		expectedType := ast.GetFormattedType(expected[i])
+		receivedType := ast.GetFormattedType(received[i])
 
 		if expr.IsMethodCall && expected[i].IsPointer && i == 0 {
 			// if method receiver is pointer, remove *
@@ -536,47 +505,47 @@ func checkMatchParamTypes(expr *CXExpression, expected, received []*CXArgument, 
 			}
 		}
 
-		if expectedType != receivedType && inp.Type != TYPE_UNDEFINED {
+		if expectedType != receivedType && inp.Type != constants.TYPE_UNDEFINED {
 			var opName string
-			if expr.Operator.IsNative {
-				opName = OpNames[expr.Operator.OpCode]
+			if expr.Operator.IsAtomic {
+				opName = ast.OpNames[expr.Operator.OpCode]
 			} else {
 				opName = expr.Operator.Name
 			}
 
 			if isInputs {
-				println(CompilationError(received[i].FileName, received[i].FileLine), fmt.Sprintf("function '%s' expected input argument of type '%s'; '%s' was provided", opName, expectedType, receivedType))
+				println(ast.CompilationError(received[i].FileName, received[i].FileLine), fmt.Sprintf("function '%s' expected input argument of type '%s'; '%s' was provided", opName, expectedType, receivedType))
 			} else {
-				println(CompilationError(expr.Outputs[i].FileName, expr.Outputs[i].FileLine), fmt.Sprintf("function '%s' expected receiving variable of type '%s'; '%s' was provided", opName, expectedType, receivedType))
+				println(ast.CompilationError(expr.Outputs[i].FileName, expr.Outputs[i].FileLine), fmt.Sprintf("function '%s' expected receiving variable of type '%s'; '%s' was provided", opName, expectedType, receivedType))
 			}
 
 		}
 
 		// In the case of assignment we need to check that the input's type matches the output's type.
-		// FIXME: There are some expressions added by the parser where temporary variables are used.
-		// These temporary variables' types are not properly being set. That's why we use !IsTempVar to
+		// FIXME: There are some expressions added by the cxgo where temporary variables are used.
+		// These temporary variables' types are not properly being set. That's why we use !cxcore.IsTempVar to
 		// exclude these cases for now.
-		if expr.Operator.OpCode == OP_IDENTITY && !IsTempVar(expr.Outputs[0].Name) {
-			inpType := GetFormattedType(expr.Inputs[0])
-			outType := GetFormattedType(expr.Outputs[0])
+		if expr.Operator.OpCode == constants.OP_IDENTITY && !util2.IsTempVar(expr.Outputs[0].Name) {
+			inpType := ast.GetFormattedType(expr.Inputs[0])
+			outType := ast.GetFormattedType(expr.Outputs[0])
 
 			// We use `isInputs` to only print the error once.
 			// Otherwise we'd print the error twice: once for the input and again for the output
 			if inpType != outType && isInputs {
-				println(CompilationError(received[i].FileName, received[i].FileLine), fmt.Sprintf("cannot assign value of type '%s' to identifier '%s' of type '%s'", inpType, GetAssignmentElement(expr.Outputs[0]).Name, outType))
+				println(ast.CompilationError(received[i].FileName, received[i].FileLine), fmt.Sprintf("cannot assign value of type '%s' to identifier '%s' of type '%s'", inpType, ast.GetAssignmentElement(expr.Outputs[0]).Name, outType))
 			}
 		}
 	}
 }
 
-func CheckTypes(expr *CXExpression) {
+func CheckTypes(expr *ast.CXExpression) {
 	if expr.Operator != nil {
-		opName := ExprOpName(expr)
+		opName := ast.ExprOpName(expr)
 
 		// checking if number of inputs is less than the required number of inputs
 		if len(expr.Inputs) != len(expr.Operator.Inputs) {
-			if !(len(expr.Operator.Inputs) > 0 && expr.Operator.Inputs[len(expr.Operator.Inputs)-1].Type != TYPE_UNDEFINED) {
-				// if the last input is of type TYPE_UNDEFINED then it might be a variadic function, such as printf
+			if !(len(expr.Operator.Inputs) > 0 && expr.Operator.Inputs[len(expr.Operator.Inputs)-1].Type != constants.TYPE_UNDEFINED) {
+				// if the last input is of type cxcore.TYPE_UNDEFINED then it might be a variadic function, such as printf
 			} else {
 				// then we need to be strict in the number of inputs
 				var plural1 string
@@ -590,12 +559,12 @@ func CheckTypes(expr *CXExpression) {
 					plural3 = "was"
 				}
 
-				println(CompilationError(expr.FileName, expr.FileLine), fmt.Sprintf("operator '%s' expects %d input%s, but %d input argument%s %s provided", opName, len(expr.Operator.Inputs), plural1, len(expr.Inputs), plural2, plural3))
+				println(ast.CompilationError(expr.FileName, expr.FileLine), fmt.Sprintf("operator '%s' expects %d input%s, but %d input argument%s %s provided", opName, len(expr.Operator.Inputs), plural1, len(expr.Inputs), plural2, plural3))
 				return
 			}
 		}
 
-		// checking if number of expr.Outputs matches number of Operator.Outputs
+		// checking if number of expr.ProgramOutput matches number of Operator.ProgramOutput
 		if len(expr.Outputs) != len(expr.Operator.Outputs) {
 			var plural1 string
 			var plural2 string = "s"
@@ -608,37 +577,37 @@ func CheckTypes(expr *CXExpression) {
 				plural3 = "was"
 			}
 
-			println(CompilationError(expr.FileName, expr.FileLine), fmt.Sprintf("operator '%s' expects to return %d output%s, but %d receiving argument%s %s provided", opName, len(expr.Operator.Outputs), plural1, len(expr.Outputs), plural2, plural3))
-			os.Exit(CX_COMPILATION_ERROR)
+			println(ast.CompilationError(expr.FileName, expr.FileLine), fmt.Sprintf("operator '%s' expects to return %d output%s, but %d receiving argument%s %s provided", opName, len(expr.Operator.Outputs), plural1, len(expr.Outputs), plural2, plural3))
+			os.Exit(constants.CX_COMPILATION_ERROR)
 		}
 	}
 
-	if expr.Operator != nil && expr.Operator.IsNative && expr.Operator.OpCode == OP_IDENTITY {
-		for i, _ := range expr.Inputs {
+	if expr.Operator != nil && expr.Operator.IsAtomic && expr.Operator.OpCode == constants.OP_IDENTITY {
+		for i := range expr.Inputs {
 			var expectedType string
 			var receivedType string
-			if GetAssignmentElement(expr.Outputs[i]).CustomType != nil {
+			if ast.GetAssignmentElement(expr.Outputs[i]).CustomType != nil {
 				// then it's custom type
-				expectedType = GetAssignmentElement(expr.Outputs[i]).CustomType.Name
+				expectedType = ast.GetAssignmentElement(expr.Outputs[i]).CustomType.Name
 			} else {
 				// then it's native type
-				expectedType = TypeNames[GetAssignmentElement(expr.Outputs[i]).Type]
+				expectedType = constants.TypeNames[ast.GetAssignmentElement(expr.Outputs[i]).Type]
 			}
 
-			if GetAssignmentElement(expr.Inputs[i]).CustomType != nil {
+			if ast.GetAssignmentElement(expr.Inputs[i]).CustomType != nil {
 				// then it's custom type
-				receivedType = GetAssignmentElement(expr.Inputs[i]).CustomType.Name
+				receivedType = ast.GetAssignmentElement(expr.Inputs[i]).CustomType.Name
 			} else {
 				// then it's native type
-				receivedType = TypeNames[GetAssignmentElement(expr.Inputs[i]).Type]
+				receivedType = constants.TypeNames[ast.GetAssignmentElement(expr.Inputs[i]).Type]
 			}
 
-			// if GetAssignmentElement(expr.Outputs[i]).Type != GetAssignmentElement(inp).Type {
+			// if cxcore.GetAssignmentElement(expr.ProgramOutput[i]).Type != cxcore.GetAssignmentElement(inp).Type {
 			if receivedType != expectedType {
 				if expr.IsStructLiteral {
-					println(CompilationError(expr.Outputs[i].FileName, expr.Outputs[i].FileLine), fmt.Sprintf("field '%s' in struct literal of type '%s' expected argument of type '%s'; '%s' was provided", expr.Outputs[i].Fields[0].Name, expr.Outputs[i].CustomType.Name, expectedType, receivedType))
+					println(ast.CompilationError(expr.Outputs[i].FileName, expr.Outputs[i].FileLine), fmt.Sprintf("field '%s' in struct literal of type '%s' expected argument of type '%s'; '%s' was provided", expr.Outputs[i].Fields[0].Name, expr.Outputs[i].CustomType.Name, expectedType, receivedType))
 				} else {
-					println(CompilationError(expr.Outputs[i].FileName, expr.Outputs[i].FileLine), fmt.Sprintf("trying to assign argument of type '%s' to symbol '%s' of type '%s'", receivedType, GetAssignmentElement(expr.Outputs[i]).Name, expectedType))
+					println(ast.CompilationError(expr.Outputs[i].FileName, expr.Outputs[i].FileLine), fmt.Sprintf("trying to assign argument of type '%s' to symbol '%s' of type '%s'", receivedType, ast.GetAssignmentElement(expr.Outputs[i]).Name, expectedType))
 				}
 			}
 		}
@@ -654,16 +623,16 @@ func CheckTypes(expr *CXExpression) {
 	}
 }
 
-func ProcessStringAssignment(expr *CXExpression) {
-	if expr.Operator == Natives[OP_IDENTITY] {
+func ProcessStringAssignment(expr *ast.CXExpression) {
+	if expr.Operator == ast.Natives[constants.OP_IDENTITY] {
 		for i, out := range expr.Outputs {
 			if len(expr.Inputs) > i {
-				out = GetAssignmentElement(out)
-				inp := GetAssignmentElement(expr.Inputs[i])
+				out = ast.GetAssignmentElement(out)
+				inp := ast.GetAssignmentElement(expr.Inputs[i])
 
-				if (out.Type == TYPE_STR || out.Type == TYPE_AFF) && out.Name != "" &&
-					(inp.Type == TYPE_STR || inp.Type == TYPE_AFF) && inp.Name != "" {
-					out.PassBy = PASSBY_VALUE
+				if (out.Type == constants.TYPE_STR || out.Type == constants.TYPE_AFF) && out.Name != "" &&
+					(inp.Type == constants.TYPE_STR || inp.Type == constants.TYPE_AFF) && inp.Name != "" {
+					out.PassBy = constants.PASSBY_VALUE
 				}
 			}
 		}
@@ -672,20 +641,20 @@ func ProcessStringAssignment(expr *CXExpression) {
 
 // ProcessReferenceAssignment checks if the reference of a symbol can be assigned to the expression's output.
 // For example: `var foo i32; var bar i32; bar = &foo` is not valid.
-func ProcessReferenceAssignment(expr *CXExpression) {
+func ProcessReferenceAssignment(expr *ast.CXExpression) {
 	for _, out := range expr.Outputs {
-		elt := GetAssignmentElement(out)
-		if elt.PassBy == PASSBY_REFERENCE &&
-			!hasDeclSpec(elt, DECL_POINTER) &&
-			elt.Type != TYPE_STR && !elt.IsSlice {
-			println(CompilationError(CurrentFile, LineNo), "invalid reference assignment", elt.Name)
+		elt := ast.GetAssignmentElement(out)
+		if elt.PassBy == constants.PASSBY_REFERENCE &&
+			!hasDeclSpec(elt, constants.DECL_POINTER) &&
+			elt.Type != constants.TYPE_STR && !elt.IsSlice {
+			println(ast.CompilationError(CurrentFile, LineNo), "invalid reference assignment", elt.Name)
 		}
 	}
 
 }
 
-func ProcessSlice(inp *CXArgument) {
-	var elt *CXArgument
+func ProcessSlice(inp *ast.CXArgument) {
+	var elt *ast.CXArgument
 
 	if len(inp.Fields) > 0 {
 		elt = inp.Fields[len(inp.Fields)-1]
@@ -693,41 +662,45 @@ func ProcessSlice(inp *CXArgument) {
 		elt = inp
 	}
 
-	if elt.IsSlice && len(elt.DereferenceOperations) > 0 && elt.DereferenceOperations[len(elt.DereferenceOperations)-1] == DEREF_POINTER {
+	if elt.IsSlice && len(elt.DereferenceOperations) > 0 && elt.DereferenceOperations[len(elt.DereferenceOperations)-1] == constants.DEREF_POINTER {
 		elt.DereferenceOperations = elt.DereferenceOperations[:len(elt.DereferenceOperations)-1]
-	} else if elt.IsSlice && len(elt.DereferenceOperations) > 0 && len(inp.Fields) == 0 {
-		// elt.DereferenceOperations = append([]int{DEREF_POINTER}, elt.DereferenceOperations...)
+		return
+	}
+
+	if elt.IsSlice && len(elt.DereferenceOperations) > 0 && len(inp.Fields) == 0 {
+		return
+		// elt.DereferenceOperations = append([]int{cxcore.DEREF_POINTER}, elt.DereferenceOperations...)
 	}
 }
 
-func ProcessSliceAssignment(expr *CXExpression) {
-	if expr.Operator == Natives[OP_IDENTITY] {
-		var inp *CXArgument
-		var out *CXArgument
+func ProcessSliceAssignment(expr *ast.CXExpression) {
+	if expr.Operator == ast.Natives[constants.OP_IDENTITY] {
+		var inp *ast.CXArgument
+		var out *ast.CXArgument
 
-		inp = GetAssignmentElement(expr.Inputs[0])
-		out = GetAssignmentElement(expr.Outputs[0])
+		inp = ast.GetAssignmentElement(expr.Inputs[0])
+		out = ast.GetAssignmentElement(expr.Outputs[0])
 
 		if inp.IsSlice && out.IsSlice && len(inp.Indexes) == 0 && len(out.Indexes) == 0 {
-			out.PassBy = PASSBY_VALUE
+			out.PassBy = constants.PASSBY_VALUE
 		}
 	}
-	if expr.Operator != nil && !expr.Operator.IsNative {
+	if expr.Operator != nil && !expr.Operator.IsAtomic {
 		// then it's a function call
 		for _, inp := range expr.Inputs {
-			assignElt := GetAssignmentElement(inp)
+			assignElt := ast.GetAssignmentElement(inp)
 
 			// we want to pass by value if we're sending the slice as a whole (no indexing)
 			// unless it's a pointer to the slice
-			if assignElt.IsSlice && len(assignElt.Indexes) == 0 && !hasDeclSpec(assignElt, DECL_POINTER) {
-				assignElt.PassBy = PASSBY_VALUE
+			if assignElt.IsSlice && len(assignElt.Indexes) == 0 && !hasDeclSpec(assignElt, constants.DECL_POINTER) {
+				assignElt.PassBy = constants.PASSBY_VALUE
 			}
 		}
 	}
 }
 
 // lookupSymbol searches for `ident` in `symbols`, starting from the innermost scope.
-func lookupSymbol(pkgName, ident string, symbols *[]map[string]*CXArgument) (*CXArgument, error) {
+func lookupSymbol(pkgName, ident string, symbols *[]map[string]*ast.CXArgument) (*ast.CXArgument, error) {
 	fullName := pkgName + "." + ident
 	for c := len(*symbols) - 1; c >= 0; c-- {
 		if sym, found := (*symbols)[c][fullName]; found {
@@ -736,7 +709,7 @@ func lookupSymbol(pkgName, ident string, symbols *[]map[string]*CXArgument) (*CX
 	}
 
 	// Checking if `ident` refers to a function.
-	pkg, err := PRGRM.GetPackage(pkgName)
+	pkg, err := AST.GetPackage(pkgName)
 	if err != nil {
 		return nil, err
 	}
@@ -748,16 +721,16 @@ func lookupSymbol(pkgName, ident string, symbols *[]map[string]*CXArgument) (*CX
 	if err != nil {
 		return nil, notFound
 	}
-	// Then we found a function by that name. Let's create a `CXArgument` of
+	// Then we found a function by that name. Let's create a `cxcore.CXArgument` of
 	// type `func` with that name.
-	fnArg := MakeArgument(ident, fn.FileName, fn.FileLine).AddType(TypeNames[TYPE_FUNC])
+	fnArg := ast.MakeArgument(ident, fn.FileName, fn.FileLine).AddType(constants.TypeNames[constants.TYPE_FUNC])
 	fnArg.Package = pkg
 
 	return fnArg, nil
 }
 
 // UpdateSymbolsTable adds `sym` to the innermost scope (last element of slice) in `symbols`.
-func UpdateSymbolsTable(symbols *[]map[string]*CXArgument, sym *CXArgument, offset *int, shouldExist bool) {
+func UpdateSymbolsTable(symbols *[]map[string]*ast.CXArgument, sym *ast.CXArgument, offset *int, shouldExist bool) {
 	if sym.Name != "" {
 		if !sym.IsLocalDeclaration {
 			GetGlobalSymbol(symbols, sym.Package, sym.Name)
@@ -772,7 +745,7 @@ func UpdateSymbolsTable(symbols *[]map[string]*CXArgument, sym *CXArgument, offs
 
 		// then it wasn't found in any scope
 		if err != nil && shouldExist {
-			println(CompilationError(sym.FileName, sym.FileLine), "identifier '"+sym.Name+"' does not exist")
+			println(ast.CompilationError(sym.FileName, sym.FileLine), "identifier '"+sym.Name+"' does not exist")
 		}
 
 		// then it was already added in the innermost scope
@@ -785,15 +758,15 @@ func UpdateSymbolsTable(symbols *[]map[string]*CXArgument, sym *CXArgument, offs
 			// then it was declared in an outer scope
 			sym.Offset = *offset
 			(*symbols)[lastIdx][fullName] = sym
-			*offset += GetSize(sym)
+			*offset += ast.GetSize(sym)
 		}
 	}
 }
 
-func ProcessMethodCall(expr *CXExpression, symbols *[]map[string]*CXArgument, offset *int, shouldExist bool) {
+func ProcessMethodCall(expr *ast.CXExpression, symbols *[]map[string]*ast.CXArgument, offset *int, shouldExist bool) {
 	if expr.IsMethodCall {
-		var inp *CXArgument
-		var out *CXArgument
+		var inp *ast.CXArgument
+		var out *ast.CXArgument
 
 		if len(expr.Inputs) > 0 && expr.Inputs[0].Name != "" {
 			inp = expr.Inputs[0]
@@ -810,8 +783,8 @@ func ProcessMethodCall(expr *CXExpression, symbols *[]map[string]*CXArgument, of
 				}
 				argOut, err := lookupSymbol(out.Package.Name, out.Name, symbols)
 				if err != nil {
-					println(CompilationError(out.FileName, out.FileLine), fmt.Sprintf("identifier '%s' does not exist", out.Name))
-					os.Exit(CX_COMPILATION_ERROR)
+					println(ast.CompilationError(out.FileName, out.FileLine), fmt.Sprintf("identifier '%s' does not exist", out.Name))
+					os.Exit(constants.CX_COMPILATION_ERROR)
 				}
 				// then we found an output
 				if len(out.Fields) > 0 {
@@ -823,7 +796,7 @@ func ProcessMethodCall(expr *CXExpression, symbols *[]map[string]*CXArgument, of
 						panic("")
 					}
 
-					expr.Inputs = append([]*CXArgument{out}, expr.Inputs...)
+					expr.Inputs = append([]*ast.CXArgument{out}, expr.Inputs...)
 
 					out.Fields = out.Fields[:len(out.Fields)-1]
 
@@ -858,8 +831,8 @@ func ProcessMethodCall(expr *CXExpression, symbols *[]map[string]*CXArgument, of
 					strct := argOut.CustomType
 
 					if strct == nil {
-						println(CompilationError(argOut.FileName, argOut.FileLine), fmt.Sprintf("illegal method call or field access on identifier '%s' of primitive type '%s'", argOut.Name, TypeNames[argOut.Type]))
-						os.Exit(CX_COMPILATION_ERROR)
+						println(ast.CompilationError(argOut.FileName, argOut.FileLine), fmt.Sprintf("illegal method call or field access on identifier '%s' of primitive type '%s'", argOut.Name, constants.TypeNames[argOut.Type]))
+						os.Exit(constants.CX_COMPILATION_ERROR)
 					}
 
 					expr.Inputs = append(expr.Outputs[:1], expr.Inputs...)
@@ -882,8 +855,8 @@ func ProcessMethodCall(expr *CXExpression, symbols *[]map[string]*CXArgument, of
 
 			argOut, err := lookupSymbol(out.Package.Name, out.Name, symbols)
 			if err != nil {
-				println(CompilationError(out.FileName, out.FileLine), fmt.Sprintf("identifier '%s' does not exist", out.Name))
-				os.Exit(CX_COMPILATION_ERROR)
+				println(ast.CompilationError(out.FileName, out.FileLine), fmt.Sprintf("identifier '%s' does not exist", out.Name))
+				os.Exit(constants.CX_COMPILATION_ERROR)
 			}
 
 			// then we found an output
@@ -891,8 +864,8 @@ func ProcessMethodCall(expr *CXExpression, symbols *[]map[string]*CXArgument, of
 				strct := argOut.CustomType
 
 				if strct == nil {
-					println(CompilationError(argOut.FileName, argOut.FileLine), fmt.Sprintf("illegal method call or field access on identifier '%s' of primitive type '%s'", argOut.Name, TypeNames[argOut.Type]))
-					os.Exit(CX_COMPILATION_ERROR)
+					println(ast.CompilationError(argOut.FileName, argOut.FileLine), fmt.Sprintf("illegal method call or field access on identifier '%s' of primitive type '%s'", argOut.Name, constants.TypeNames[argOut.Type]))
+					os.Exit(constants.CX_COMPILATION_ERROR)
 				}
 
 				if fn, err := strct.Package.GetMethod(strct.Name+"."+out.Fields[len(out.Fields)-1].Name, strct.Name); err == nil {
@@ -901,23 +874,23 @@ func ProcessMethodCall(expr *CXExpression, symbols *[]map[string]*CXArgument, of
 					panic("")
 				}
 
-				expr.Inputs = append([]*CXArgument{out}, expr.Inputs...)
+				expr.Inputs = append([]*ast.CXArgument{out}, expr.Inputs...)
 
 				out.Fields = out.Fields[:len(out.Fields)-1]
 
 				expr.Outputs = expr.Outputs[1:]
-				// expr.Outputs = nil
+				// expr.ProgramOutput = nil
 			}
 		}
 
 		// checking if receiver is sent as pointer or not
 		if expr.Operator.Inputs[0].IsPointer {
-			expr.Inputs[0].PassBy = PASSBY_REFERENCE
+			expr.Inputs[0].PassBy = constants.PASSBY_REFERENCE
 		}
 	}
 }
 
-func GiveOffset(symbols *[]map[string]*CXArgument, sym *CXArgument, offset *int, shouldExist bool) {
+func GiveOffset(symbols *[]map[string]*ast.CXArgument, sym *ast.CXArgument, offset *int, shouldExist bool) {
 	if sym.Name != "" {
 		if !sym.IsLocalDeclaration {
 			GetGlobalSymbol(symbols, sym.Package, sym.Name)
@@ -931,11 +904,11 @@ func GiveOffset(symbols *[]map[string]*CXArgument, sym *CXArgument, offset *int,
 	}
 }
 
-func ProcessTempVariable(expr *CXExpression) {
-	if expr.Operator != nil && (expr.Operator == Natives[OP_IDENTITY] || IsUndOpMimicInput(expr.Operator)) && len(expr.Outputs) > 0 && len(expr.Inputs) > 0 {
+func ProcessTempVariable(expr *ast.CXExpression) {
+	if expr.Operator != nil && (expr.Operator == ast.Natives[constants.OP_IDENTITY] || ast.IsArithmeticOperator(expr.Operator.OpCode)) && len(expr.Outputs) > 0 && len(expr.Inputs) > 0 {
 		name := expr.Outputs[0].Name
 		arg := expr.Outputs[0]
-		if IsTempVar(name) {
+		if util2.IsTempVar(name) {
 			// then it's a temporary variable and it needs to adopt its input's type
 			arg.Type = expr.Inputs[0].Type
 			arg.Size = expr.Inputs[0].Size
@@ -945,7 +918,7 @@ func ProcessTempVariable(expr *CXExpression) {
 	}
 }
 
-func CopyArgFields(sym *CXArgument, arg *CXArgument) {
+func CopyArgFields(sym *ast.CXArgument, arg *ast.CXArgument) {
 	sym.Offset = arg.Offset
 	sym.IsPointer = arg.IsPointer
 	sym.IndirectionLevels = arg.IndirectionLevels
@@ -953,22 +926,22 @@ func CopyArgFields(sym *CXArgument, arg *CXArgument) {
 	if sym.FileLine != arg.FileLine {
 		// FIXME Maybe we can unify this later.
 		if len(sym.Fields) > 0 {
-			elt := GetAssignmentElement(sym)
+			elt := ast.GetAssignmentElement(sym)
 
 			declSpec := []int{}
 			for c := 0; c < len(elt.DeclarationSpecifiers); c++ {
 				switch elt.DeclarationSpecifiers[c] {
-				case DECL_INDEXING:
-					if declSpec[len(declSpec)-1] == DECL_ARRAY || declSpec[len(declSpec)-1] == DECL_SLICE {
+				case constants.DECL_INDEXING:
+					if declSpec[len(declSpec)-1] == constants.DECL_ARRAY || declSpec[len(declSpec)-1] == constants.DECL_SLICE {
 						declSpec = declSpec[:len(declSpec)-1]
 					} else {
-						println(CompilationError(sym.FileName, sym.FileLine), fmt.Sprintf("invalid indexing"))
+						println(ast.CompilationError(sym.FileName, sym.FileLine), "invalid indexing")
 					}
-				case DECL_DEREF:
-					if declSpec[len(declSpec)-1] == DECL_POINTER {
+				case constants.DECL_DEREF:
+					if declSpec[len(declSpec)-1] == constants.DECL_POINTER {
 						declSpec = declSpec[:len(declSpec)-1]
 					} else {
-						println(CompilationError(sym.FileName, sym.FileLine), fmt.Sprintf("invalid indirection"))
+						println(ast.CompilationError(sym.FileName, sym.FileLine), "invalid indirection")
 					}
 				default:
 					declSpec = append(declSpec, elt.DeclarationSpecifiers[c])
@@ -984,26 +957,26 @@ func CopyArgFields(sym *CXArgument, arg *CXArgument) {
 			}
 
 			for _, spec := range sym.DeclarationSpecifiers {
-				// checking if we need to remove or add DECL_POINTERs
+				// checking if we need to remove or add cxcore.DECL_POINTERs
 				// also we could be removing
 				switch spec {
-				case DECL_INDEXING:
-					if declSpec[len(declSpec)-1] == DECL_ARRAY || declSpec[len(declSpec)-1] == DECL_SLICE {
+				case constants.DECL_INDEXING:
+					if declSpec[len(declSpec)-1] == constants.DECL_ARRAY || declSpec[len(declSpec)-1] == constants.DECL_SLICE {
 						declSpec = declSpec[:len(declSpec)-1]
 					} else {
-						println(CompilationError(sym.FileName, sym.FileLine), fmt.Sprintf("invalid indexing"))
+						println(ast.CompilationError(sym.FileName, sym.FileLine), "invalid indexing")
 					}
-				case DECL_DEREF:
-					if declSpec[len(declSpec)-1] == DECL_POINTER {
+				case constants.DECL_DEREF:
+					if declSpec[len(declSpec)-1] == constants.DECL_POINTER {
 						declSpec = declSpec[:len(declSpec)-1]
 					} else {
-						println(CompilationError(sym.FileName, sym.FileLine), fmt.Sprintf("invalid indirection"))
+						println(ast.CompilationError(sym.FileName, sym.FileLine), "invalid indirection")
 					}
-				case DECL_POINTER:
+				case constants.DECL_POINTER:
 					if sym.FileLine != arg.FileLine {
 						// This function is also called so it assigns offset and other fields to signature parameters
 						//
-						declSpec = append(declSpec, DECL_POINTER)
+						declSpec = append(declSpec, constants.DECL_POINTER)
 					}
 				}
 			}
@@ -1018,7 +991,7 @@ func CopyArgFields(sym *CXArgument, arg *CXArgument) {
 	sym.CustomType = arg.CustomType
 
 	// FIXME: In other processes like ProcessSymbolFields the symbol is assigned with lengths.
-	// If we already have some lengths, we skip this. This needs to be fixed in the redesign of the parser.
+	// If we already have some lengths, we skip this. This needs to be fixed in the redesign of the cxgo.
 	if len(sym.Lengths) == 0 {
 		sym.Lengths = arg.Lengths
 	}
@@ -1028,40 +1001,40 @@ func CopyArgFields(sym *CXArgument, arg *CXArgument) {
 	sym.DoesEscape = arg.DoesEscape
 	sym.Size = arg.Size
 
-	if arg.Type == TYPE_STR {
+	if arg.Type == constants.TYPE_STR {
 		sym.IsPointer = true
 	}
 
 	// Checking if it's a slice struct field. We'll do the same process as
 	// below (as in the `arg.IsSlice` check), but the process differs in the
 	// case of a slice struct field.
-	elt := GetAssignmentElement(sym)
+	elt := ast.GetAssignmentElement(sym)
 	if !arg.IsSlice && arg.CustomType != nil && elt.IsSlice {
 		// elt.DereferenceOperations = []int{4, 4}
 		for i, deref := range elt.DereferenceOperations {
-			// The parser when reading `foo[5]` in postfix.go does not know if `foo`
+			// The cxgo when reading `foo[5]` in postfix.go does not know if `foo`
 			// is a slice or an array. At this point we now know it's a slice and we need
-			// to change those dereferences to DEREF_SLICE.
-			if deref == DEREF_ARRAY {
-				elt.DereferenceOperations[i] = DEREF_SLICE
+			// to change those dereferences to cxcore.DEREF_SLICE.
+			if deref == constants.DEREF_ARRAY {
+				elt.DereferenceOperations[i] = constants.DEREF_SLICE
 			}
 		}
-		if elt.DereferenceOperations[0] == DEREF_POINTER {
+		if elt.DereferenceOperations[0] == constants.DEREF_POINTER {
 			elt.DereferenceOperations = elt.DereferenceOperations[1:]
 		}
 	}
 
 	if arg.IsSlice {
-		if !hasDerefOp(sym, DEREF_ARRAY) {
+		if !hasDerefOp(sym, constants.DEREF_ARRAY) {
 			// Then we're handling the slice itself, and we need to dereference it.
-			sym.DereferenceOperations = append([]int{DEREF_POINTER}, sym.DereferenceOperations...)
+			sym.DereferenceOperations = append([]int{constants.DEREF_POINTER}, sym.DereferenceOperations...)
 		} else {
 			for i, deref := range sym.DereferenceOperations {
-				// The parser when reading `foo[5]` in postfix.go does not know if `foo`
+				// The cxgo when reading `foo[5]` in postfix.go does not know if `foo`
 				// is a slice or an array. At this point we now know it's a slice and we need
-				// to change those dereferences to DEREF_SLICE.
-				if deref == DEREF_ARRAY {
-					sym.DereferenceOperations[i] = DEREF_SLICE
+				// to change those dereferences to cxcore.DEREF_SLICE.
+				if deref == constants.DEREF_ARRAY {
+					sym.DereferenceOperations[i] = constants.DEREF_SLICE
 				}
 			}
 		}
@@ -1085,10 +1058,10 @@ func CopyArgFields(sym *CXArgument, arg *CXArgument) {
 	}
 }
 
-func ProcessSymbolFields(sym *CXArgument, arg *CXArgument) {
+func ProcessSymbolFields(sym *ast.CXArgument, arg *ast.CXArgument) {
 	if len(sym.Fields) > 0 {
 		if arg.CustomType == nil || len(arg.CustomType.Fields) == 0 {
-			println(CompilationError(sym.FileName, sym.FileLine), fmt.Sprintf("'%s' has no fields", sym.Name))
+			println(ast.CompilationError(sym.FileName, sym.FileLine), fmt.Sprintf("'%s' has no fields", sym.Name))
 			return
 		}
 
@@ -1109,7 +1082,7 @@ func ProcessSymbolFields(sym *CXArgument, arg *CXArgument) {
 				if method, methodErr := strct.Package.GetMethod(receiverType+"."+methodName, receiverType); methodErr == nil {
 					fld.Type = method.Outputs[0].Type
 				} else {
-					println(CompilationError(fld.FileName, fld.FileLine), err.Error())
+					println(ast.CompilationError(fld.FileName, fld.FileLine), err.Error())
 				}
 
 			}
@@ -1146,17 +1119,17 @@ func ProcessSymbolFields(sym *CXArgument, arg *CXArgument) {
 					// sym.DereferenceOperations = append(sym.DereferenceOperations, DEREF_FIELD)
 
 					if fld.IsSlice {
-						nameFld.DereferenceOperations = append([]int{DEREF_POINTER}, nameFld.DereferenceOperations...)
+						nameFld.DereferenceOperations = append([]int{constants.DEREF_POINTER}, nameFld.DereferenceOperations...)
 						nameFld.DereferenceLevels++
 					}
 
 					nameFld.PassBy = fld.PassBy
 					nameFld.IsSlice = fld.IsSlice
 
-					if fld.Type == TYPE_STR || fld.Type == TYPE_AFF {
-						nameFld.PassBy = PASSBY_REFERENCE
-						// nameFld.Size = TYPE_POINTER_SIZE
-						// nameFld.TotalSize = TYPE_POINTER_SIZE
+					if fld.Type == constants.TYPE_STR || fld.Type == constants.TYPE_AFF {
+						nameFld.PassBy = constants.PASSBY_REFERENCE
+						// nameFld.Size = cxcore.TYPE_POINTER_SIZE
+						// nameFld.TotalSize = cxcore.TYPE_POINTER_SIZE
 					}
 
 					if fld.CustomType != nil {
@@ -1165,13 +1138,13 @@ func ProcessSymbolFields(sym *CXArgument, arg *CXArgument) {
 					break
 				}
 
-				nameFld.Offset += GetSize(fld)
+				nameFld.Offset += ast.GetSize(fld)
 			}
 		}
 	}
 }
 
-func SetFinalSize(symbols *[]map[string]*CXArgument, sym *CXArgument) {
+func SetFinalSize(symbols *[]map[string]*ast.CXArgument, sym *ast.CXArgument) {
 	var finalSize int = sym.TotalSize
 
 	arg, err := lookupSymbol(sym.Package.Name, sym.Name, symbols)
@@ -1187,7 +1160,7 @@ func SetFinalSize(symbols *[]map[string]*CXArgument, sym *CXArgument) {
 }
 
 // GetGlobalSymbol tries to retrieve `ident` from `symPkg`'s globals if `ident` is not found in the local scope.
-func GetGlobalSymbol(symbols *[]map[string]*CXArgument, symPkg *CXPackage, ident string) {
+func GetGlobalSymbol(symbols *[]map[string]*ast.CXArgument, symPkg *ast.CXPackage, ident string) {
 	_, err := lookupSymbol(symPkg.Name, ident, symbols)
 	if err != nil {
 		if glbl, err := symPkg.GetGlobal(ident); err == nil {
@@ -1197,32 +1170,32 @@ func GetGlobalSymbol(symbols *[]map[string]*CXArgument, symPkg *CXPackage, ident
 	}
 }
 
-func PreFinalSize(finalSize *int, sym *CXArgument, arg *CXArgument) {
+func PreFinalSize(finalSize *int, sym *ast.CXArgument, arg *ast.CXArgument) {
 	idxCounter := 0
-	elt := GetAssignmentElement(sym)
+	elt := ast.GetAssignmentElement(sym)
 	for _, op := range elt.DereferenceOperations {
 		if elt.IsSlice {
 			continue
 		}
 		switch op {
-		case DEREF_ARRAY:
+		case constants.DEREF_ARRAY:
 			*finalSize /= elt.Lengths[idxCounter]
 			idxCounter++
-		case DEREF_POINTER:
+		case constants.DEREF_POINTER:
 			if len(arg.DeclarationSpecifiers) > 0 {
 				var subSize int
 				subSize = 1
 				for _, decl := range arg.DeclarationSpecifiers {
 					switch decl {
-					case DECL_ARRAY:
+					case constants.DECL_ARRAY:
 						for _, len := range arg.Lengths {
 							subSize *= len
 						}
-					// case DECL_SLICE:
+					// case cxcore.DECL_SLICE:
 					// 	subSize = TYPE_POINTER_SIZE
-					case DECL_BASIC:
-						subSize = GetArgSize(sym.Type)
-					case DECL_STRUCT:
+					case constants.DECL_BASIC:
+						subSize = constants.GetArgSize(sym.Type)
+					case constants.DECL_STRUCT:
 						subSize = arg.CustomType.Size
 					}
 				}
