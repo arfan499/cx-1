@@ -11,6 +11,7 @@ func GetOpCodeCount() int {
 }
 */
 
+//TODO: WHAT IS AN "OPERATOR"
 func IsOperator(opCode int) bool {
 	return opCode > constants.START_OF_OPERATORS && opCode < constants.END_OF_OPERATORS
 }
@@ -31,9 +32,3 @@ func GetTypedOperator(typeCode int, opCode int) *CXFunction {
 	return Operators[GetTypedOperatorOffset(typeCode, opCode)]
 }
 
-// Operator ...
-func Operator(code int, name string, handler OpcodeHandler_V2, inputs []*CXArgument, outputs []*CXArgument, atomicType int, operator int) {
-	Op_V2(code, name, handler, inputs, outputs)
-	native := Natives[code]
-	Operators[GetTypedOperatorOffset(atomicType, operator)] = native
-}

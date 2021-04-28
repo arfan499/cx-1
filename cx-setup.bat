@@ -50,7 +50,7 @@ rem check for %BIN_PATH% in %PATH%
 set BIN_PATH=%GI_PATH%\bin
 set GH_PATH=%GI_PATH%\src\github.com
 set SKYCOIN_PATH=%GH_PATH%\skycoin
-set CXGO_PATH=%SKYCOIN_PATH%\cx\cxgo
+set CXGO_PATH=%SKYCOIN_PATH%\cx\cxparser
 rem attempt to replace %BIN_PATH% text with nothing...
 call set COMPARISON_PATH=%%PATH:%BIN_PATH%=%%
 rem ...if found/replaced %BIN_PATH%, below vars aren't equal
@@ -228,11 +228,11 @@ exit /b
 
 
 :buildCX
-  %BIN_PATH%\goyacc -o %CXGO_PATH%\cxgo0\cxgo0.go %CXGO_PATH%\cxgo0\cxgo0.y
-  call :showResults "goyacc cxgo0" "1st pass -" "ERROR in 1st pass -"
+  %BIN_PATH%\goyacc -o %CXGO_PATH%\cxpartialparsing\partialparsing.go %CXGO_PATH%\cxpartialparsing\partialparsing.y
+  call :showResults "goyacc cxpartialparsing" "1st pass -" "ERROR in 1st pass -"
 
-  %BIN_PATH%\goyacc -o %CXGO_PATH%\parser\cxgo.go %CXGO_PATH%\parser\cxgo.y
-  call :showResults "goyacc cxgo" "2nd pass -" "ERROR in 2nd pass -"
+  %BIN_PATH%\goyacc -o %CXGO_PATH%\parscxparsingcompletorer\parsingcompletorer.go %CXGO_PATH%\cxparsingcompletor\parsingcompletorer.y
+  call :showResults "goyacc cxparsingcompletor" "2nd pass -" "ERROR in 2nd pass -"
 
 
   go build -tags="base cxfx" -i -o %BIN_PATH%\cx.exe github.com\skycoin\cx\cmd\cx

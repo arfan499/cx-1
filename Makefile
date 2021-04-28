@@ -1,7 +1,7 @@
 export GO111MODULE=on
 
 .DEFAULT_GOAL := help
-.PHONY: build-parser build test build-core
+.PHONY: build-parser build test test-parser build-core
 .PHONY: install
 .PHONY: dep
 
@@ -64,8 +64,8 @@ endif
 ifeq ($(UNAME_S), Linux)
 endif
 
-build:  ## Build CX from sources
-	$(GO_OPTS) go build -tags="os cxfx" -o ./bin/cx github.com/skycoin/cx/cmd/cx
+build: ## Build CX from sources
+	$(GO_OPTS) go build -tags="cipher cxfx cxos http regexp" -o ./bin/cx github.com/skycoin/cx/cmd/cx
 	chmod +x ./bin/cx
 
 build-core: ## Build CX with CXFX support. Done via satisfying 'cxfx' build tag.
@@ -79,12 +79,14 @@ install: configure-workspace ## Install CX from sources. Build dependencies
 	@echo 'NOTE:\tWe recommend you to test your CX installation by running "cx ./tests"'
 	./bin/cx -v
 
+test-parser: build-parser build test
+
 test:  ## Run CX test suite.
 ifndef CXVERSION
 	@echo "cx not found in $(PWD)/bin, please run make install first"
 else
 	# go test $(GO_OPTS) -race -tags base github.com/skycoin/cx/cxgo/
-	go run -mod=vendor ./cmd/cxtest --cxpath=$(PWD)/bin/cx --wdir=./tests --log=fail,stderr --disable-tests=gui,issue
+	go run -mod=vendor ./cmd/cxtest/main.go --cxpath=$(PWD)/bin/cx --wdir=./tests --log=fail,stderr --disable-tests=gui,issue
 
 endif
 
@@ -93,7 +95,7 @@ ifndef CXVERSION
 	@echo "cx not found in $(PWD)/bin, please run make install first"
 else
 	# go test $(GO_OPTS) -race -tags base github.com/skycoin/cx/cxgo/
-	go run -mod=vendor ./cmd/cxtest --cxpath=$(PWD)/bin/cx --wdir=./tests --log=fail,stderr
+	go run -mod=vendor ./cmd/cxtest/main.go --cxpath=$(PWD)/bin/cx --wdir=./tests --log=fail,stderr
 endif
 
 build-goyacc: ## Builds goyacc into /bin/goyacc
@@ -101,8 +103,8 @@ build-goyacc: ## Builds goyacc into /bin/goyacc
 
 build-parser: ## Generate lexer and parser for CX grammar
 	#go build -o ./bin/goyacc ./cmd/goyacc/main.go
-	./bin/goyacc -o cxgo/cxgo0/cxgo0.go cxgo/cxgo0/cxgo0.y
-	./bin/goyacc -o cxgo/cxgo/cxgo.go cxgo/cxgo/cxgo.y
+	./bin/goyacc -o cxparser/cxpartialparsing/cxpartialparsing.go cxparser/cxpartialparsing/cxpartialparsing.y
+	./bin/goyacc -o cxparser/cxparsingcompletor/parsingcompletor.go cxparser/cxparsingcompletor/parsingcompletor.y
 
 token-fuzzer:
 	go build $(GO_OPTS) -o ./bin/cx-token-fuzzer $(PWD)/development/token-fuzzer/main.go

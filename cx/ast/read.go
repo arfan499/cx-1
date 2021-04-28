@@ -14,8 +14,8 @@ import (
 ./cx/fix_read3.go:119:	array := ReadMemory(offset, inp)
 ./cx/fix_read3.go:128:	out = DeserializeBool(ReadMemory(offset, inp))
 ./cx/op_aff.go:101:	return ReadMemory(GetFinalOffset(
-./cx/op_und.go:548:		obj := ReadMemory(GetFinalOffset(fp, inp2), inp2)
-./cx/op_und.go:588:		obj := ReadMemory(GetFinalOffset(fp, inp3), inp3)
+./cx/op_stdin.go:548:		obj := ReadMemory(GetFinalOffset(fp, inp2), inp2)
+./cx/op_stdin.go:588:		obj := ReadMemory(GetFinalOffset(fp, inp3), inp3)
 ./cx/execute.go:291:					ReadMemory(
 ./cx/execute.go:424:		mem := ReadMemory(GetFinalOffset(newFP, out), out)
 ./cx/op_testing.go:22:		byts1 = ReadMemory(GetFinalOffset(fp, inp1), inp1)
@@ -57,7 +57,7 @@ func ReadStr(fp int, inp *CXArgument) (out string) {
 // ReadStrFromOffset ...
 func ReadStrFromOffset(off int, inp *CXArgument) (out string) {
 	var offset int32
-	if inp.Name == "" {
+	if inp.ArgDetails.Name == "" {
 		// Then it's a literal.
 		offset = int32(off)
 	} else {

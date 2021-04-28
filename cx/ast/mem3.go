@@ -1,13 +1,14 @@
 package ast
 
 import (
-	"github.com/skycoin/cx/cx/constants"
 	"log"
+
+	"github.com/skycoin/cx/cx/constants"
 )
 
-var ENHANCED_DEBUGING1 bool = false
-var ENHANCED_DEBUGING2 bool = false
-var ENHANCED_DEBUGING3 bool = false
+var ENHANCED_DEBUGING1 bool = true
+var ENHANCED_DEBUGING2 bool = true
+var ENHANCED_DEBUGING3 bool = false //needs to check for structs too
 var ENHANCED_DEBUGING4 bool = false
 
 //NEEDS COMMENT. WTF DOES THIS DO?
@@ -18,28 +19,30 @@ var ENHANCED_DEBUGING4 bool = false
 //GetFinalOffsetF32
 //GetfinalOffsetI16
 //ETC
+
+/*
+	if ENHANCED_DEBUGING4 {
+		if !(arg.IsPointer) && (arg.Type == constants.TYPE_F32 || arg.Type == constants.TYPE_F64 ||
+			arg.Type == constants.TYPE_UI8 || arg.Type == constants.TYPE_UI16 || arg.Type == constants.TYPE_UI32 || arg.Type == constants.TYPE_UI64 ||
+			arg.Type == constants.TYPE_I8 || arg.Type == constants.TYPE_I16 || arg.Type == constants.TYPE_I32 || arg.Type == constants.TYPE_I64) {
+			panic("arg is in invalid format")
+		}
+	}
+*/
+
+//TODO: Delete this eventually
 func GetFinalOffset(fp int, arg *CXArgument) int {
 
 	if ENHANCED_DEBUGING3 {
-		if !(arg.IsPointer || arg.IsSlice || arg.IsArray) {
-			panic("arg is in invalid format")
+		// if !(arg.IsPointer || arg.IsSlice || arg.IsArray || arg.IsStruct) {
+		// 	panic("arg is in invalid format")
+		// }
+		if !IsNotAtomic(arg) {
+			panic("error: arg is non-atomic type")
 		}
 	}
 
-	if ENHANCED_DEBUGING4 {
-		if arg.Type == constants.TYPE_F32 || arg.Type == constants.TYPE_F64 ||
-			arg.Type == constants.TYPE_UI8 || arg.Type == constants.TYPE_UI16 || arg.Type == constants.TYPE_UI32 || arg.Type == constants.TYPE_UI64 ||
-			arg.Type == constants.TYPE_I8 || arg.Type == constants.TYPE_I16 || arg.Type == constants.TYPE_I32 || arg.Type == constants.TYPE_I64 {
-			panic("arg is in invalid format")
-		}
-	}
-
-	// defer RuntimeError(PROGRAM)
-	// var elt *CXArgument
 	finalOffset := arg.Offset
-	// var fldIdx int
-
-	// elt = arg
 
 	//Todo: find way to eliminate this check
 	if finalOffset < PROGRAM.StackSize {
@@ -52,30 +55,34 @@ func GetFinalOffset(fp int, arg *CXArgument) int {
 	//TODO: Eliminate this loop
 	//Q: How can CalculateDereferences change offset?
 	//Why is finalOffset fed in as a pointer?
-	CalculateDereferences(arg, &finalOffset, fp)
+	finalOffset = CalculateDereferences(arg, finalOffset, fp)
 	for _, fld := range arg.Fields {
 		// elt = fld
 		finalOffset += fld.Offset
-		CalculateDereferences(fld, &finalOffset, fp)
+		finalOffset = CalculateDereferences(fld, finalOffset, fp)
 	}
 
 	return finalOffset
 }
 
+//OMFG. set ENABLE_MIRACLE_BUG to true and do `make build; make test`
+//var ENABLE_MIRACLE_BUG bool = true //uses GetFinalOffset for everything
+var ENHANCED_DEBUGING bool = true //runs asserts to find error
+
+var ENABLE_MIRACLE_BUG bool = false
+
 //this is simplest version of function that works for atomic types
 func GetOffsetAtomicSimple(fp int, arg *CXArgument) int {
 
 	if ENHANCED_DEBUGING1 {
-		if arg.IsPointer || arg.IsSlice || arg.IsArray {
-			panic("arg is in invalid format")
+		if IsNotAtomic(arg) {
+			panic("error: arg is non-atomic type")
 		}
 	}
 
 	if ENHANCED_DEBUGING2 {
-		if arg.Type == constants.TYPE_F32 || arg.Type == constants.TYPE_F64 ||
-			arg.Type == constants.TYPE_UI8 || arg.Type == constants.TYPE_UI16 || arg.Type == constants.TYPE_UI32 || arg.Type == constants.TYPE_UI64 ||
-			arg.Type == constants.TYPE_I8 || arg.Type == constants.TYPE_I16 || arg.Type == constants.TYPE_I32 || arg.Type == constants.TYPE_I64 {
-			panic("arg is in invalid format")
+		if !IsAtomic(arg) {
+			panic("error: arg is non-atomic type")
 		}
 	}
 
@@ -86,11 +93,45 @@ func GetOffsetAtomicSimple(fp int, arg *CXArgument) int {
 	return finalOffset
 }
 
-//OMFG. set ENABLE_MIRACLE_BUG to true and do `make build; make test`
-//var ENABLE_MIRACLE_BUG bool = true //uses GetFinalOffset for everything
-var ENHANCED_DEBUGING bool = true //runs asserts to find error
+//IsNotAtomic checks if arg is pointer, slice or array and returns
+func IsNotAtomic(arg *CXArgument) bool {
+	// if arg.IsPointer || arg.IsSlice || arg.IsArray {
+	if arg.IsPointer || arg.IsSlice {
+		return true
+	}
 
-var ENABLE_MIRACLE_BUG bool = false
+	return false
+}
+
+//IsAtomic checks if arg is of atomic type else returns
+func IsAtomic(arg *CXArgument) bool {
+	switch arg.Type {
+	case constants.TYPE_F32:
+		return true
+	case constants.TYPE_F64:
+		return true
+	case constants.TYPE_UI8:
+		return true
+	case constants.TYPE_UI16:
+		return true
+	case constants.TYPE_UI32:
+		return true
+	case constants.TYPE_UI64:
+		return true
+	case constants.TYPE_I8:
+		return true
+	case constants.TYPE_I16:
+		return true
+	case constants.TYPE_I32:
+		return true
+	case constants.TYPE_I64:
+		return true
+	case constants.TYPE_BOOL:
+		return true
+	default:
+		return false
+	}
+}
 
 //this is version with type assertions
 func GetOffsetAtomic(fp int, arg *CXArgument) int {
@@ -107,7 +148,7 @@ func GetOffsetAtomic(fp int, arg *CXArgument) int {
 
 	if ENHANCED_DEBUGING {
 		offset1 := finalOffset //save value
-		CalculateDereferences(arg, &offset1, fp)
+		finalOffset = CalculateDereferences(arg, offset1, fp)
 		if offset1 != finalOffset {
 			log.Panicf("fix_mem3.go, GetOffsetAtomic(), offfset1 != finalOffset, offset1= %d, finalOffset= %d \n", offset1, finalOffset)
 		}
@@ -199,4 +240,44 @@ func GetOffset_bool(fp int, arg *CXArgument) int {
 // GetOffset_str ...
 func GetOffset_str(fp int, arg *CXArgument) int {
 	return GetFinalOffset(fp, arg)
+}
+
+// GetOffset_slice ...
+func GetOffset_slice(fp int, arg *CXArgument) int {
+	finalOffset := arg.Offset
+
+	if finalOffset < PROGRAM.StackSize {
+		// Then it's in the stack, not in data or heap and we need to consider the frame pointer.
+		finalOffset += fp
+	}
+
+	CalculateDereferences_ptr(arg, &finalOffset, fp)
+	for _, fld := range arg.Fields {
+		// elt = fld
+		finalOffset += fld.Offset
+		CalculateDereferences_ptr(fld, &finalOffset, fp)
+	}
+
+	return finalOffset
+}
+
+// GetOffset_ptr ...
+func GetOffset_ptr(fp int, arg *CXArgument) int {
+	// defer RuntimeError(PROGRAM)
+	// var elt *CXArgument
+	finalOffset := arg.Offset
+
+	//Todo: find way to eliminate this check
+	if finalOffset < PROGRAM.StackSize {
+		// Then it's in the stack, not in data or heap and we need to consider the frame pointer.
+		finalOffset += fp
+	}
+	CalculateDereferences_ptr(arg, &finalOffset, fp)
+	for _, fld := range arg.Fields {
+		// elt = fld
+		finalOffset += fld.Offset
+		CalculateDereferences_ptr(fld, &finalOffset, fp)
+	}
+
+	return finalOffset
 }

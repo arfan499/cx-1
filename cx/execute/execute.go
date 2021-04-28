@@ -64,7 +64,7 @@ func RunCxAst(cxprogram *ast.CXProgram, untilEnd bool, nCalls *int, untilCall in
 			if toCall.Operator == nil {
 				// then it's a declaration
 				toCallName = "declaration"
-			} else if toCall.Operator.IsAtomic {
+			} else if toCall.Operator.IsBuiltin {
 				toCallName = ast.OpNames[toCall.Operator.OpCode]
 			} else {
 				if toCall.Operator.Name != "" {
@@ -119,8 +119,6 @@ func RunCompiled(cxprogram *ast.CXProgram, nCalls int, args []string) error {
 				mainCall := MakeCall(fn)
 				cxprogram.CallStack[0] = mainCall
 				cxprogram.StackPointer = fn.Size
-
-				var err error
 
 				for !cxprogram.Terminated {
 					call := &cxprogram.CallStack[cxprogram.CallCounter]

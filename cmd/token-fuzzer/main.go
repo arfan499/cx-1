@@ -1,8 +1,6 @@
 package main
 
 import (
-	//. "github.com/skycoin/cx/cxparser"
-
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -10,7 +8,7 @@ import (
 	"os"
 	"strconv"
 
-	. "github.com/skycoin/cx/cxgo/cxgo"
+	. "github.com/skycoin/cx/cxparser/cxparsingcompletor"
 )
 
 var tbits int = 4
@@ -170,10 +168,6 @@ var tok2ideal map[int]string = map[int]string{
 
 	/* Types */
 	BASICTYPE: "",
-	/* Selectors */
-	SPACKAGE: ":package",
-	SSTRUCT:  ":struct",
-	SFUNC:    ":func",
 	/* Removers */
 	REM:     ":rem",
 	DEF:     "def",
@@ -182,10 +176,6 @@ var tok2ideal map[int]string = map[int]string{
 	CLAUSES: "clauses",
 	OBJECT:  "",
 	OBJECTS: "",
-	/* Stepping */
-	STEP:  ":step",
-	PSTEP: ":pstep",
-	TSTEP: ":tstep",
 	/* Debugging */
 	DSTACK:   ":ds",
 	DPROGRAM: ":dp",
